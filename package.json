@@ -3,6 +3,10 @@
   "private": true,
   "version": "1.1.0",
   "description": "Claude Desktop - AI assistant with native capabilities",
+  "author": {
+    "name": "pretend1111",
+    "email": "pretend1111@users.noreply.github.com"
+  },
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {
