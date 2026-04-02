@@ -97,7 +97,7 @@ function createWindow() {
 
     mainWindow.webContents.on('console-message', (event, level, message, line, sourceId) => {
         if (level >= 2) {
-            require('fs').appendFileSync('frontend-error.log', `[Frontend Error] ${message} at ${sourceId}:${line}\n`);
+            try { require('fs').appendFileSync(require('path').join(require('electron').app.getPath('userData'), 'frontend-error.log'), `[Frontend Error] ${message} at ${sourceId}:${line}\n`); } catch (_) {}
         }
     });
 
