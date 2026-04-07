@@ -2293,20 +2293,12 @@ You have the following skills available. When a user's request matches a skill's
         const sendSSE = (data) => { var stream = activeStreams.get(conversation_id); if (stream) { stream.events.push(data); var line = 'data: ' + JSON.stringify(data) + '\n\n'; var arr = Array.from(stream.listeners); for (var i = 0; i < arr.length; i++) { try { arr[i].write(line); } catch (_) { stream.listeners.delete(arr[i]); } } } try { res.write('data: ' + JSON.stringify(data) + '\n\n'); } catch (_) {} };
 
         try {
-            // ── 0. Skill rewrite ──
-            let message_rewritten = message;
-            const skillSlashMatch = message.match(/^\/([a-zA-Z0-9_-]+)\s*([\s\S]*)$/);
-            if (skillSlashMatch) {
-                const skillSlug = skillSlashMatch[1];
-                const skillArgs = skillSlashMatch[2].trim();
-                message_rewritten = skillArgs
-                    ? `Use the ${skillSlug} skill to help me with: ${skillArgs}`
-                    : `Use the ${skillSlug} skill.`;
-                console.log('[Chat] Rewrote skill slash command:', message, '→', message_rewritten);
-            }
+            // /skill-name is passed as-is to the engine — the engine handles
+            // slash commands internally (injects SKILL.md content into context).
+            // This is the most reliable approach across all models.
 
             // ── 1. Handle attachments: copy to workspace, append references to prompt ──
-            let finalPrompt = message_rewritten;
+            let finalPrompt = message;
             const imageFileNames = []; // image files copied to workspace
 
             if (attachments && attachments.length > 0) {
