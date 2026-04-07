@@ -621,6 +621,27 @@ export async function answerUserQuestion(
   return res.json();
 }
 
+// Pre-warm engine for a conversation (spawn in background before user sends first message)
+export function warmEngine(conversationId: string): void {
+  const userMode = localStorage.getItem('user_mode') || 'clawparrot';
+  let userProfile: any;
+  try {
+    const p = JSON.parse(localStorage.getItem('user_profile') || localStorage.getItem('user') || '{}');
+    const wf = p.work_function; const pp = p.personal_preferences;
+    userProfile = (wf || pp) ? { work_function: wf, personal_preferences: pp } : undefined;
+  } catch { userProfile = undefined; }
+  // Fire-and-forget — don't block UI
+  request(`/conversations/${conversationId}/warm`, {
+    method: 'POST',
+    body: JSON.stringify({
+      env_token: localStorage.getItem('CUSTOM_API_KEY') || localStorage.getItem('ANTHROPIC_API_KEY') || undefined,
+      env_base_url: localStorage.getItem('CUSTOM_BASE_URL') || localStorage.getItem('ANTHROPIC_BASE_URL') || undefined,
+      user_mode: userMode,
+      user_profile: userProfile,
+    }),
+  }).catch(() => {}); // ignore errors
+}
+
 // ===== Provider Management =====
 export interface ProviderModel { id: string; name: string; enabled?: boolean; }
 export interface Provider {
@@ -851,6 +872,11 @@ export async function getSkills() {
 
 export async function getSkillDetail(id: string) {
   const res = await request(`/skills/${id}`);
+  return res.json();
+}
+
+export async function getSkillFile(id: string, filePath: string) {
+  const res = await request(`/skills/${id}/file?path=${encodeURIComponent(filePath)}`);
   return res.json();
 }
 

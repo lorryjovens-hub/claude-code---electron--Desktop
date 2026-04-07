@@ -573,7 +573,11 @@ const Layout = () => {
               ) : location.pathname === '/chats' ? (
                 <ChatsPage />
               ) : location.pathname === '/customize' ? (
-                <CustomizePage />
+                <CustomizePage onCreateWithClaude={() => {
+                  sessionStorage.setItem('prefill_input', '让我们一起使用你的 skill-creator skill 来创建一个 skill 吧。请先问我这个 skill 应该做什么。');
+                  handleNewChat();
+                  window.location.hash = '#/';
+                }} />
               ) : location.pathname === '/projects' ? (
                 <ProjectsPage />
               ) : location.pathname === '/artifacts' ? (

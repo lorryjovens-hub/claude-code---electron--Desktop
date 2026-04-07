@@ -177,7 +177,7 @@ const SourcesList: React.FC<{ sources: CitationSource[] }> = ({ sources }) => {
 };
 
 /** 代码块组件（带复制按钮和语法高亮） */
-const CodeBlock: React.FC<{ language: string; code: string; className?: string }> = ({ language, code }) => {
+export const CodeBlock: React.FC<{ language: string; code: string; className?: string }> = ({ language, code, className }) => {
   const [copied, setCopied] = useState(false);
   const [hovered, setHovered] = useState(false);
   const [isDark, setIsDark] = useState(() => {
@@ -209,7 +209,7 @@ const CodeBlock: React.FC<{ language: string; code: string; className?: string }
 
   return (
     <div
-      className={`relative rounded-md overflow-hidden my-3 text-sm border ${isDark ? 'border-[#383836] bg-[#30302E]' : 'border-[#E5E5E5] bg-[#FCFCFA]'}`}
+      className={`relative rounded-md overflow-hidden my-3 text-sm border ${isDark ? 'border-[#383836] bg-[#30302E]' : 'border-[#E5E5E5] bg-[#FCFCFA]'} ${className || ''}`}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >

@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { Search, Plus, ChevronDown, ArrowLeft, MoreVertical, Star, ArrowUp, FileText, Trash, Pencil, MessageSquare, X, Upload, Check, AudioLines, ChevronRight } from 'lucide-react';
+import { Search, Plus, ChevronDown, ArrowLeft, MoreVertical, Star, ArrowUp, FileText, Trash, Pencil, MessageSquare, X, Upload, Check, AudioLines, ChevronRight, Archive } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { getProjects, createProject, getProject, updateProject, deleteProject, uploadProjectFile, deleteProjectFile, createProjectConversation, deleteConversation, Project, ProjectFile } from '../api';
+import { Paperclip, ListCollapse } from 'lucide-react';
+import { getProjects, createProject, getProject, updateProject, deleteProject, uploadProjectFile, deleteProjectFile, createProjectConversation, deleteConversation, getSkills, Project, ProjectFile } from '../api';
 import ModelSelector, { SelectableModel } from './ModelSelector';
 import { IconPlus } from './Icons';
 import startProjectsImg from '../assets/icons/start-projects.png';
@@ -23,9 +24,20 @@ const ProjectsPage = () => {
   const [editName, setEditName] = useState('');
   const [sortMenuOpen, setSortMenuOpen] = useState(false);
   const [sortBy, setSortBy] = useState<'activity' | 'edited' | 'created'>('activity');
+  const [activeMenu, setActiveMenu] = useState<string | null>(null);
+  const [projectToDelete, setProjectToDelete] = useState<Project | null>(null);
+  const [projectToEdit, setProjectToEdit] = useState<Project | null>(null);
+  const [editDetailsName, setEditDetailsName] = useState('');
+  const [editDetailsDesc, setEditDetailsDesc] = useState('');
   const [message, setMessage] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [showPlusMenu, setShowPlusMenu] = useState(false);
+  const [showSkillsSubmenu, setShowSkillsSubmenu] = useState(false);
+  const [enabledSkills, setEnabledSkills] = useState<Array<{ id: string; name: string; description?: string }>>([]);
+  const [selectedSkill, setSelectedSkill] = useState<{ name: string; slug: string; description?: string } | null>(null);
+  const plusMenuRef = useRef<HTMLDivElement>(null);
+  const plusBtnRef = useRef<HTMLButtonElement>(null);
 
   // Model selector state — load from self-hosted config or use defaults
   const isSelfHostedMode = localStorage.getItem('user_mode') === 'selfhosted';
@@ -47,7 +59,7 @@ const ProjectsPage = () => {
             description: m.tier && tierDescMap[m.tier] ? tierDescMap[m.tier] : undefined,
           }));
         }
-      } catch (_) {}
+      } catch (_) { }
     }
     return [
       { id: 'claude-opus-4-6', name: 'Opus 4.6', enabled: 1, description: 'Most capable for ambitious work' },
@@ -81,6 +93,28 @@ const ProjectsPage = () => {
 
   useEffect(() => { loadProjects(); }, [loadProjects]);
 
+  // Load skills when plus menu opens
+  useEffect(() => {
+    if (!showPlusMenu) { setShowSkillsSubmenu(false); return; }
+    getSkills().then((data: any) => {
+      const all = [...(data.examples || []), ...(data.my_skills || [])];
+      setEnabledSkills(all.filter((s: any) => s.enabled).map((s: any) => ({ id: s.id, name: s.name, description: s.description })));
+    }).catch(() => {});
+  }, [showPlusMenu]);
+
+  // Close plus menu on outside click
+  useEffect(() => {
+    if (!showPlusMenu) return;
+    const handleClick = (e: MouseEvent) => {
+      if (plusMenuRef.current && !plusMenuRef.current.contains(e.target as Node) &&
+        plusBtnRef.current && !plusBtnRef.current.contains(e.target as Node)) {
+        setShowPlusMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [showPlusMenu]);
+
   const loadProject = useCallback(async (id: string) => {
     try {
       const data = await getProject(id);
@@ -109,6 +143,32 @@ const ProjectsPage = () => {
       setCurrentProject(null);
       setShowMenu(false);
       loadProjects();
+    } catch (_) { }
+  };
+
+  const handleDeleteProject = async (p: Project) => {
+    try {
+      await deleteProject(p.id);
+      if (currentProject && currentProject.id === p.id) {
+        setCurrentProject(null);
+      }
+      setProjectToDelete(null);
+      loadProjects();
+    } catch (_) { }
+  };
+
+  const handleSaveEditDetails = async () => {
+    if (!projectToEdit) return;
+    try {
+      await updateProject(projectToEdit.id, {
+        name: editDetailsName,
+        description: editDetailsDesc
+      });
+      setProjectToEdit(null);
+      loadProjects();
+      if (currentProject && currentProject.id === projectToEdit.id) {
+        loadProject(currentProject.id);
+      }
     } catch (_) { }
   };
 
@@ -228,33 +288,83 @@ const ProjectsPage = () => {
               className="bg-claude-input border border-claude-border dark:border-[#3a3a38] shadow-[0_2px_8px_rgba(0,0,0,0.02)] hover:shadow-[0_2px_8px_rgba(0,0,0,0.08)] hover:border-[#CCC] dark:hover:border-[#5a5a58] focus-within:shadow-[0_2px_8px_rgba(0,0,0,0.08)] focus-within:border-[#CCC] dark:focus-within:border-[#5a5a58] transition-all duration-200 flex flex-col max-h-[60vh] font-sans rounded-2xl"
             >
               <div className="flex-1 overflow-y-auto min-h-0">
-                <textarea
-                  ref={textareaRef}
-                  className="w-full pl-5 pr-4 pt-5 pb-1 text-claude-text placeholder:text-claude-textSecondary text-[16px] outline-none resize-none overflow-hidden bg-transparent font-sans font-[350]"
-                  style={{ minHeight: '48px', borderRadius: '16px 16px 0 0' }}
-                  placeholder="How can I help you today?"
-                  value={message}
-                  onChange={(e) => {
-                    setMessage(e.target.value);
-                    e.target.style.height = 'auto';
-                    e.target.style.height = Math.min(e.target.scrollHeight, 300) + 'px';
-                    e.target.style.overflowY = e.target.scrollHeight > 300 ? 'auto' : 'hidden';
-                  }}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault();
-                      handleChatSubmit();
-                    }
-                  }}
-                />
+                <div className="relative">
+                  {/* Skill overlay */}
+                  {message.match(/^\/[a-zA-Z0-9_-]+/) && (
+                    <div className="pl-5 pr-4 pt-5 pb-1 text-[16px] font-sans font-[350]" style={{ minHeight: '48px', position: 'absolute', top: 0, left: 0, right: 0, pointerEvents: 'none', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }} aria-hidden>
+                      {(() => { const m = message.match(/^(\/[a-zA-Z0-9_-]+)([\s\S]*)$/); return m ? <><span className="text-[#4B9EFA]">{m[1]}</span><span className="text-claude-text">{m[2]}</span></> : null; })()}
+                    </div>
+                  )}
+                  <textarea
+                    ref={textareaRef}
+                    className={`w-full pl-5 pr-4 pt-5 pb-1 placeholder:text-claude-textSecondary text-[16px] outline-none resize-none overflow-hidden bg-transparent font-sans font-[350] ${message.match(/^\/[a-zA-Z0-9_-]+/) ? 'text-transparent caret-claude-text' : 'text-claude-text'}`}
+                    style={{ minHeight: '48px', borderRadius: '16px 16px 0 0' }}
+                    placeholder={selectedSkill ? `Describe what you want ${selectedSkill.name} to do...` : "How can I help you today?"}
+                    value={message}
+                    onChange={(e) => {
+                      setMessage(e.target.value);
+                      e.target.style.height = 'auto';
+                      e.target.style.height = Math.min(e.target.scrollHeight, 300) + 'px';
+                      e.target.style.overflowY = e.target.scrollHeight > 300 ? 'auto' : 'hidden';
+                    }}
+                    onKeyDown={e => {
+                      if (e.key === 'Backspace' && selectedSkill) {
+                        const pos = (e.target as HTMLTextAreaElement).selectionStart;
+                        const prefix = `/${selectedSkill.slug} `;
+                        if (pos > 0 && pos <= prefix.length && message.startsWith(prefix.slice(0, pos))) {
+                          e.preventDefault();
+                          setMessage(message.slice(prefix.length));
+                          setSelectedSkill(null);
+                          return;
+                        }
+                      }
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        handleChatSubmit();
+                      }
+                    }}
+                  />
+                </div>
               </div>
               <div className="px-4 pb-3 pt-1 flex items-center justify-between flex-shrink-0">
-                <div>
+                <div className="relative flex items-center">
                   <button
+                    ref={plusBtnRef}
+                    onClick={() => setShowPlusMenu(prev => !prev)}
                     className="p-2 text-claude-textSecondary hover:text-claude-text hover:bg-claude-hover rounded-lg transition-colors"
                   >
                     <IconPlus size={20} />
                   </button>
+                  {showPlusMenu && (
+                    <div ref={plusMenuRef} className="absolute bottom-full left-0 mb-2 w-[220px] bg-claude-input border border-claude-border rounded-xl shadow-[0_4px_16px_rgba(0,0,0,0.12)] py-1.5 z-50">
+                      <button onClick={() => { setShowPlusMenu(false); fileInputRef.current?.click(); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-[13px] text-claude-text hover:bg-claude-hover transition-colors">
+                        <Paperclip size={16} className="text-claude-textSecondary" />
+                        Add files or photos
+                      </button>
+                      <div className="relative">
+                        <button onMouseEnter={() => setShowSkillsSubmenu(true)} onClick={() => setShowSkillsSubmenu(p => !p)} className="w-full flex items-center justify-between px-4 py-2.5 text-[13px] text-claude-text hover:bg-claude-hover transition-colors">
+                          <div className="flex items-center gap-3"><FileText size={16} className="text-claude-textSecondary" />Skills</div>
+                          <ChevronDown size={14} className="text-claude-textSecondary -rotate-90" />
+                        </button>
+                        {showSkillsSubmenu && (
+                          <div className="absolute left-full bottom-0 ml-1 w-[200px] bg-claude-input border border-claude-border rounded-xl shadow-[0_4px_16px_rgba(0,0,0,0.12)] py-1.5 z-50 max-h-[300px] overflow-y-auto" onMouseLeave={() => setShowSkillsSubmenu(false)}>
+                            {enabledSkills.length > 0 ? enabledSkills.map(skill => (
+                              <button key={skill.id} onClick={() => {
+                                setShowPlusMenu(false); setShowSkillsSubmenu(false);
+                                const slug = skill.name.toLowerCase().replace(/\s+/g, '-');
+                                setSelectedSkill({ name: skill.name, slug, description: skill.description });
+                                setMessage(prev => prev ? `/${slug} ${prev}` : `/${slug} `);
+                                textareaRef.current?.focus();
+                              }} className="w-full text-left px-4 py-2 text-[13px] text-claude-text hover:bg-claude-hover transition-colors truncate">{skill.name}</button>
+                            )) : <div className="px-4 py-2 text-[12px] text-claude-textSecondary italic">No skills enabled</div>}
+                            <div className="border-t border-claude-border mt-1 pt-1">
+                              <button onClick={() => { setShowPlusMenu(false); window.location.hash = '#/customize'; }} className="w-full flex items-center gap-3 px-4 py-2 text-[13px] text-claude-textSecondary hover:bg-claude-hover transition-colors"><FileText size={14} />Manage skills</button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
                 <div className="flex items-center gap-3">
                   <ModelSelector
@@ -599,10 +709,45 @@ const ProjectsPage = () => {
               <div
                 key={p.id}
                 onClick={() => loadProject(p.id)}
-                className="flex flex-col p-5 border border-claude-border rounded-[16px] bg-transparent hover:bg-black/[0.02] dark:hover:bg-white/[0.02] cursor-pointer transition-colors group min-h-[140px]"
+                className="flex flex-col p-5 border border-claude-border rounded-[12px] bg-transparent hover:bg-black/[0.02] dark:hover:bg-white/[0.02] cursor-pointer transition-colors group min-h-[170px]"
               >
-                <div className="flex items-center gap-3 mb-2.5">
-                  <h3 className="text-[15.5px] font-medium text-claude-text truncate">{p.name}</h3>
+                <div className="flex items-center justify-between mb-2.5 relative">
+                  <div className="flex items-center gap-3">
+                    <h3 className="text-[15.5px] font-medium text-claude-text truncate">{p.name}</h3>
+                  </div>
+                  <div className="relative" onClick={(e) => e.stopPropagation()}>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setActiveMenu(activeMenu === p.id ? null : p.id); }}
+                      className={`p-1 text-[#A1A1AA] hover:text-claude-text hover:bg-black/5 dark:hover:bg-white/5 rounded-[6px] transition-all ${activeMenu === p.id ? 'opacity-100 bg-black/5 dark:bg-white/5' : 'opacity-0 group-hover:opacity-100'}`}
+                    >
+                      <MoreVertical size={18} />
+                    </button>
+
+                    {activeMenu === p.id && (
+                      <>
+                        <div className="fixed inset-0 z-40" onClick={(e) => { e.stopPropagation(); setActiveMenu(null); }} />
+                        <div className="absolute top-full right-0 mt-1 w-[180px] bg-white dark:bg-[#30302E] rounded-[16px] shadow-[0_4px_24px_rgba(0,0,0,0.15)] border border-gray-200 dark:border-[#65645F] py-1.5 z-50">
+                          <button className="w-full flex items-center gap-3 px-4 py-2.5 text-[14px] text-claude-text hover:bg-black/5 dark:hover:bg-white/5 transition-colors text-left" onClick={(e) => { e.stopPropagation(); setActiveMenu(null); }}>
+                            <Star size={16} className="text-claude-textSecondary" />
+                            Star
+                          </button>
+                          <button className="w-full flex items-center gap-3 px-4 py-2.5 text-[14px] text-claude-text hover:bg-black/5 dark:hover:bg-white/5 transition-colors text-left" onClick={(e) => { e.stopPropagation(); setActiveMenu(null); setProjectToEdit(p); setEditDetailsName(p.name); setEditDetailsDesc(p.description || ''); }}>
+                            <Pencil size={16} className="text-claude-textSecondary" />
+                            Edit details
+                          </button>
+                          <div className="my-1.5 border-t border-claude-border opacity-50" />
+                          <button className="w-full flex items-center gap-3 px-4 py-2.5 text-[14px] text-claude-text hover:bg-black/5 dark:hover:bg-white/5 transition-colors text-left" onClick={(e) => { e.stopPropagation(); setActiveMenu(null); }}>
+                            <Archive size={16} className="text-claude-textSecondary" />
+                            Archive
+                          </button>
+                          <button className="w-full flex items-center gap-3 px-4 py-2.5 text-[14px] text-[#E05A5A] hover:bg-red-500/10 transition-colors text-left" onClick={(e) => { e.stopPropagation(); setActiveMenu(null); setProjectToDelete(p); }}>
+                            <Trash size={16} className="text-[#E05A5A]" />
+                            Delete
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
                 </div>
 
                 <p className="text-[14px] text-claude-textSecondary line-clamp-3 leading-relaxed flex-1">
@@ -634,6 +779,80 @@ const ProjectsPage = () => {
           </div>
         )}
       </div>
+
+      {projectToDelete && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="bg-[#2A2A2A] w-[460px] rounded-[16px] flex flex-col shadow-2xl relative border border-[#444] overflow-hidden">
+            <div className="px-6 pt-6 pb-4 text-left">
+              <h3 className="text-[19px] font-semibold text-[#efefef] mb-3">Delete project</h3>
+              <p className="text-[15px] text-[#A1A1AA] leading-relaxed pr-4">
+                确定要删除项目「{projectToDelete.name}」吗？所有关联的文件和对话也会被删除。
+              </p>
+            </div>
+            <div className="px-5 pb-5 pt-2 flex justify-end gap-3 mt-4">
+              <button
+                onClick={() => setProjectToDelete(null)}
+                className="px-5 py-2 text-[14.5px] font-medium text-[#efefef] border border-[#555] hover:bg-white/5 rounded-[8px] transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleDeleteProject(projectToDelete)}
+                className="px-5 py-2 text-[14.5px] font-medium text-white bg-[#E05A5A] hover:bg-[#E86B6B] rounded-[8px] transition-colors"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {projectToEdit && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="bg-[#242424] w-[460px] rounded-[16px] flex flex-col shadow-2xl relative border border-[#444] overflow-hidden">
+            <div className="px-6 pt-6 pb-4 text-left">
+              <h3 className="text-[19px] font-semibold text-[#efefef] mb-5">Edit details</h3>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-[14px] text-[#A1A1AA] mb-2 font-medium">Name</label>
+                  <input
+                    type="text"
+                    value={editDetailsName}
+                    onChange={(e) => setEditDetailsName(e.target.value)}
+                    className="w-full px-3 py-2 bg-transparent border border-white/20 rounded-[8px] text-white outline-none focus:border-[#3A7ADA] focus:ring-1 focus:ring-[#3A7ADA] transition-all text-[15px]"
+                    autoFocus
+                  />
+                </div>
+                <div>
+                  <label className="block text-[14px] text-[#A1A1AA] mb-2 font-medium">Description</label>
+                  <textarea
+                    value={editDetailsDesc}
+                    onChange={(e) => setEditDetailsDesc(e.target.value)}
+                    rows={4}
+                    className="w-full px-3 py-2 bg-[#30302E] border border-white/5 rounded-[8px] text-white outline-none focus:border-[#3A7ADA] focus:ring-1 focus:ring-[#3A7ADA] transition-all resize-none text-[14.5px] leading-relaxed"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="px-6 pb-6 pt-2 flex justify-end gap-3 mt-4">
+              <button
+                onClick={() => setProjectToEdit(null)}
+                className="px-5 py-2.5 text-[14.5px] font-medium text-[#efefef] border border-[#555] hover:bg-white/5 rounded-[8px] transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveEditDetails}
+                className="px-5 py-2.5 text-[14.5px] font-medium text-[#222] bg-white hover:bg-gray-100 rounded-[8px] transition-colors"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

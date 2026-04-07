@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { flushSync } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, Plus, Search, Trash2, Sparkles, LayoutGrid, FileText,
   ChevronRight, ChevronDown, Folder, File, MoreHorizontal, Info, Eye, Code,
-  Settings, Check, MessageSquare, ClipboardList, Upload, Github
+  Settings, Check, MessageSquare, ClipboardList, Upload, Github, X, FolderPlus
 } from 'lucide-react';
-import MarkdownRenderer from './MarkdownRenderer';
-import { getSkills, getSkillDetail, createSkill, updateSkill, deleteSkill, toggleSkill, getGithubStatus, getGithubAuthUrl, disconnectGithub } from '../api';
+import MarkdownRenderer, { CodeBlock } from './MarkdownRenderer';
+import { getSkills, getSkillDetail, getSkillFile, createSkill, updateSkill, deleteSkill, toggleSkill, getGithubStatus, getGithubAuthUrl, disconnectGithub } from '../api';
 import searchIconImg from '../assets/icons/search-icon.png';
 import skillsImg from '../assets/icons/skills.png';
 import connectorsImg from '../assets/icons/connectors.png';
@@ -24,6 +25,7 @@ interface Skill {
   user_id?: string | null;
   enabled: boolean;
   created_at?: string;
+  files?: any[];
 }
 
 // File structure for skill-creator matching the official anthropics/skills repo
@@ -68,7 +70,133 @@ const SKILL_CREATOR_FILES = [
   { name: 'LICENSE.txt', type: 'file' },
 ];
 
-const CustomizePage = () => {
+interface FileTreeNodeProps {
+  skill: Skill;
+  isExpanded: boolean;
+  onExpand: (e: React.MouseEvent) => void;
+  selectedSkillId: string | null;
+  detail: Skill | null;
+  selectSkill: (id: string) => void;
+  selectedFile: string;
+  setSelectedFile: (name: string) => void;
+  setSelectedSkillId: (id: string) => void;
+  loadFileContent: (skillId: string, filePath: string) => void;
+}
+
+const FileTreeNode: React.FC<FileTreeNodeProps> = ({
+  skill, isExpanded, onExpand,
+  selectedSkillId, detail, selectSkill,
+  selectedFile, setSelectedFile, setSelectedSkillId, loadFileContent
+}) => {
+  const isSelected = selectedSkillId === skill.id;
+  const hasFiles = detail && detail.id === skill.id && detail.files && detail.files.length > 0;
+  const isEnabled = skill.enabled;
+  const [mockFolderState, setMockFolderState] = useState<Record<string, boolean>>({});
+
+  const toggleMockFolder = (name: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setMockFolderState(prev => ({ ...prev, [name]: !prev[name] }));
+  };
+
+  return (
+    <div className="select-none overflow-hidden">
+      <div
+        onClick={(e) => {
+          if (isSelected) {
+            onExpand(e);
+          } else {
+            selectSkill(skill.id);
+          }
+        }}
+        className={`flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer transition-colors ${isSelected ? 'bg-claude-hover' : 'hover:bg-claude-hover/50'}`}
+      >
+        <div className="flex items-center justify-center w-[24px] h-[24px] rounded-md border border-claude-border bg-black/5 dark:bg-[#30302E] flex-shrink-0">
+          <img
+            src={skillsImg}
+            className={`w-[15.5px] h-[15.5px] ${isEnabled ? 'dark:invert opacity-90' : 'dark:invert opacity-30 invert-[0.3]'}`}
+            alt="skill"
+          />
+        </div>
+
+        <div className="flex-1 min-w-0">
+          <span className={`truncate text-[14px] ${isEnabled ? 'text-claude-text font-medium' : 'text-[#262624] dark:text-[#6B6B68]'}`}>
+            {skill.name}
+          </span>
+        </div>
+
+        {isSelected && (
+          <ChevronRight size={16} className={`text-claude-textSecondary transition-transform duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] ${isExpanded && hasFiles ? 'rotate-90' : ''}`} />
+        )}
+      </div>
+
+      <div className={`grid transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] ${isExpanded && hasFiles ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0 pointer-events-none'}`}>
+        <div className="overflow-hidden">
+          <div className="pl-6 pt-0.5 pb-2 space-y-0.5">
+            {(detail?.files || []).map((file: any) => (
+              <div key={file.name}>
+                <div
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (file.type === 'folder') toggleMockFolder(file.name, e);
+                    else {
+                      setSelectedFile(file.name);
+                      setSelectedSkillId(skill.id);
+                      loadFileContent(skill.id, file.name);
+                    }
+                  }}
+                  className={`flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer text-[13.5px] group ${selectedSkillId === skill.id && selectedFile === file.name && file.type !== 'folder' ? 'bg-claude-hover' : 'hover:bg-claude-hover/70'}`}
+                >
+                  <div className="w-[12px]" /> {/* Indent for chevron */}
+                  {file.type === 'folder' ? (
+                    <Folder size={15.5} className="text-claude-textSecondary fill-claude-textSecondary/10" />
+                  ) : (
+                    <File size={15.5} className="text-claude-textSecondary group-hover:text-claude-text transition-colors" />
+                  )}
+                  <span className={`truncate ${selectedSkillId === skill.id && selectedFile === file.name && file.type !== 'folder' ? 'text-claude-text font-medium' : 'text-claude-textSecondary group-hover:text-claude-text transition-colors'}`}>{file.name}</span>
+                  {file.type === 'folder' && <ChevronRight size={14} className={`ml-auto text-claude-textSecondary transition-transform duration-200 ${mockFolderState[file.name] ? 'rotate-90' : ''}`} />}
+                </div>
+                {/* Folder children */}
+                {file.type === 'folder' && (
+                  <div className={`grid transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] ${mockFolderState[file.name] ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
+                    <div className="overflow-hidden">
+                      {file.children && file.children.length > 0 ? (
+                        <div className="pl-6 py-0.5 space-y-0.5">
+                          {file.children.map((child: any) => (
+                            <div
+                              key={child.name}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                // Build relative path: folder/child
+                                const childPath = file.name + '/' + child.name;
+                                setSelectedFile(child.name);
+                                setSelectedSkillId(skill.id);
+                                loadFileContent(skill.id, childPath);
+                              }}
+                              className={`flex items-center gap-2 px-2 py-1 rounded-md cursor-pointer text-[13px] group ${selectedSkillId === skill.id && selectedFile === child.name ? 'bg-claude-hover' : 'hover:bg-claude-hover/70'}`}
+                            >
+                              <File size={14} className="text-claude-textSecondary group-hover:text-claude-text transition-colors" />
+                              <span className={`truncate ${selectedSkillId === skill.id && selectedFile === child.name ? 'text-claude-text font-medium' : 'text-claude-textSecondary group-hover:text-claude-text transition-colors'}`}>{child.name}</span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="pl-12 py-1 pb-2 text-[12px] text-claude-textSecondary/60 italic pointer-events-none">
+                          Empty directory
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const CustomizePage = ({ onCreateWithClaude }: { onCreateWithClaude?: () => void }) => {
   const navigate = useNavigate();
   const [tab, setTab] = useState<'overview' | 'skills' | 'connectors'>('overview');
   const [examples, setExamples] = useState<Skill[]>([]);
@@ -87,7 +215,7 @@ const CustomizePage = () => {
     getGithubStatus().then(data => {
       setGithubConnected(data.connected);
       if (data.user) setGithubUser(data.user);
-    }).catch(() => {});
+    }).catch(() => { });
     // Poll for connection after OAuth redirect (user might have just authorized in browser)
     const poll = setInterval(() => {
       getGithubStatus().then(data => {
@@ -95,7 +223,7 @@ const CustomizePage = () => {
           setGithubConnected(true);
           if (data.user) setGithubUser(data.user);
         }
-      }).catch(() => {});
+      }).catch(() => { });
     }, 3000);
     return () => clearInterval(poll);
   }, [githubConnected]);
@@ -122,9 +250,11 @@ const CustomizePage = () => {
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['examples', 'myskills']));
   const [expandedSkills, setExpandedSkills] = useState<Set<string>>(new Set());
   const [selectedFile, setSelectedFile] = useState<string>('SKILL.md'); // For visual selection in tree
+  const [fileContent, setFileContent] = useState<string>(''); // Content of selected non-SKILL.md file
   const [showSearchInput, setShowSearchInput] = useState(false);
 
   const [showPlusMenu, setShowPlusMenu] = useState(false);
+  const [showUploadModal, setShowUploadModal] = useState(false);
 
   // Edit/Create state
   const [creating, setCreating] = useState(false);
@@ -133,6 +263,16 @@ const CustomizePage = () => {
   const [editContent, setEditContent] = useState('');
   const [saving, setSaving] = useState(false);
   const [viewMode, setViewMode] = useState<'preview' | 'code'>('preview');
+
+  useEffect(() => {
+    if (selectedFile) {
+      if (selectedFile.endsWith('.md') || selectedFile.endsWith('.mdx')) {
+        setViewMode('preview');
+      } else {
+        setViewMode('code');
+      }
+    }
+  }, [selectedFile]);
 
   const fetchList = useCallback(async () => {
     try {
@@ -167,18 +307,41 @@ const CustomizePage = () => {
 
   useEffect(() => { fetchList(); }, [fetchList]);
 
+  const loadFileContent = async (skillId: string, filePath: string) => {
+    if (filePath === 'SKILL.md') { setFileContent(''); return; }
+    try {
+      const data = await getSkillFile(skillId, filePath);
+      setFileContent(data.content || '');
+    } catch (e) {
+      setFileContent(`// Failed to load ${filePath}`);
+    }
+  };
+
   const selectSkill = async (id: string) => {
     setCreating(false);
     setSelectedSkillId(id);
-    setSelectedFile('SKILL.md'); // Reset file selection
+    setSelectedFile('SKILL.md');
+    setFileContent('');
+    // Collapse first so animation can play from closed → open
+    setExpandedSkills(prev => { const s = new Set(prev); s.delete(id); return s; });
     try {
       const d = await getSkillDetail(id);
-      setDetail(d);
-      if (!d.is_example) {
-        setEditName(d.name);
-        setEditDesc(d.description || '');
-        setEditContent(d.content || '');
-      }
+      flushSync(() => {
+        setDetail(d);
+        if (!d.is_example) {
+          setEditName(d.name);
+          setEditDesc(d.description || '');
+          setEditContent(d.content || '');
+        }
+      });
+
+      // Force layout calculation so the browser registers the grid-rows-[0fr] state
+      void document.body.offsetHeight;
+
+      // Delay expanding so that the layout flush is definitively painted before changing to grid-rows-[1fr]
+      setTimeout(() => {
+        setExpandedSkills(prev => new Set([...prev, id]));
+      }, 10);
     } catch (e) { console.error(e); }
   };
 
@@ -261,111 +424,11 @@ const CustomizePage = () => {
 
   const ToggleSwitch = ({ enabled, onToggle, size = 'md' }: { enabled: boolean; onToggle: (e: React.MouseEvent) => void, size?: 'sm' | 'md' }) => (
     <button onClick={onToggle}
-      className={`relative inline-flex items-center rounded-full transition-colors ${enabled ? 'bg-blue-600' : 'bg-gray-200 dark:bg-gray-600'} ${size === 'sm' ? 'h-4 w-7' : 'h-5 w-9'}`}>
-      <span className={`inline-block rounded-full bg-white transition-transform ${size === 'sm' ? 'h-3 w-3' : 'h-4 w-4'} ${enabled ? (size === 'sm' ? 'translate-x-[14px]' : 'translate-x-[18px]') : 'translate-x-[2px]'}`} />
+      className={`relative inline-flex items-center rounded-full transition-colors duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] ${enabled ? 'bg-blue-600' : 'bg-gray-200 dark:bg-gray-600'} ${size === 'sm' ? 'h-4 w-7' : 'h-5 w-9'}`}>
+      <span className={`inline-block rounded-full bg-white shadow-sm transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] ${size === 'sm' ? 'h-3 w-3' : 'h-4 w-4'} ${enabled ? (size === 'sm' ? 'translate-x-[14px]' : 'translate-x-[18px]') : 'translate-x-[2px]'}`} />
     </button>
   );
 
-  const FileTreeNode = ({ skill, isExpanded, onExpand }: { skill: Skill, isExpanded: boolean, onExpand: (e: React.MouseEvent) => void }) => {
-    const isSelected = selectedSkillId === skill.id;
-    const isSkillCreator = skill.source_dir === 'skill-creator';
-    const isEnabled = skill.enabled;
-    const [mockFolderState, setMockFolderState] = useState<Record<string, boolean>>({});
-
-    const toggleMockFolder = (name: string, e: React.MouseEvent) => {
-      e.stopPropagation();
-      setMockFolderState(prev => ({ ...prev, [name]: !prev[name] }));
-    };
-
-    return (
-      <div className="select-none overflow-hidden">
-        <div
-          onClick={(e) => {
-            if (isSelected && isSkillCreator) {
-              onExpand(e);
-            } else {
-              selectSkill(skill.id);
-            }
-          }}
-          className={`flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer transition-colors ${isSelected ? 'bg-claude-hover' : 'hover:bg-claude-hover/50'}`}
-        >
-          <div className="flex items-center justify-center">
-            <FileText size={18} className={isSelected || isEnabled ? 'text-claude-text' : 'text-[#A1A1AA]'} />
-          </div>
-
-          <div className="flex-1 min-w-0">
-            <span className={`truncate text-[14px] ${isSelected || isEnabled ? 'text-claude-text font-medium' : 'text-[#A1A1AA]'}`}>
-              {skill.name}
-            </span>
-          </div>
-
-          {isSelected && (
-            <ChevronRight size={16} className={`text-claude-textSecondary transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`} />
-          )}
-        </div>
-
-        <div className={`grid transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] ${isExpanded && isSkillCreator ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
-          <div className="overflow-hidden">
-            <div className="pl-6 pt-0.5 pb-2 space-y-0.5">
-              {SKILL_CREATOR_FILES.map((file) => (
-                <div key={file.name}>
-                  <div
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (file.type === 'folder') toggleMockFolder(file.name, e);
-                      else {
-                        setSelectedFile(file.name);
-                        selectSkill(skill.id); // Ensure parent skill is selected
-                      }
-                    }}
-                    className={`flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer text-[13.5px] group ${selectedSkillId === skill.id && selectedFile === file.name && file.type !== 'folder' ? 'bg-claude-hover' : 'hover:bg-claude-hover/70'}`}
-                  >
-                    <div className="w-[12px]" /> {/* Indent for chevron */}
-                    {file.type === 'folder' ? (
-                      <Folder size={15.5} className="text-claude-textSecondary fill-claude-textSecondary/10" />
-                    ) : (
-                      <File size={15.5} className="text-claude-textSecondary group-hover:text-claude-text transition-colors" />
-                    )}
-                    <span className={`truncate ${selectedSkillId === skill.id && selectedFile === file.name && file.type !== 'folder' ? 'text-claude-text font-medium' : 'text-claude-textSecondary group-hover:text-claude-text transition-colors'}`}>{file.name}</span>
-                    {file.type === 'folder' && <ChevronRight size={14} className={`ml-auto text-claude-textSecondary transition-transform duration-200 ${mockFolderState[file.name] ? 'rotate-90' : ''}`} />}
-                  </div>
-                  {/* Folder children */}
-                  {file.type === 'folder' && (
-                    <div className={`grid transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] ${mockFolderState[file.name] ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
-                      <div className="overflow-hidden">
-                        {file.children && file.children.length > 0 ? (
-                          <div className="pl-6 py-0.5 space-y-0.5">
-                            {file.children.map((child: any) => (
-                              <div
-                                key={child.name}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setSelectedFile(child.name);
-                                  selectSkill(skill.id);
-                                }}
-                                className={`flex items-center gap-2 px-2 py-1 rounded-md cursor-pointer text-[13px] group ${selectedSkillId === skill.id && selectedFile === child.name ? 'bg-claude-hover' : 'hover:bg-claude-hover/70'}`}
-                              >
-                                <File size={14} className="text-claude-textSecondary group-hover:text-claude-text transition-colors" />
-                                <span className={`truncate ${selectedSkillId === skill.id && selectedFile === child.name ? 'text-claude-text font-medium' : 'text-claude-textSecondary group-hover:text-claude-text transition-colors'}`}>{child.name}</span>
-                              </div>
-                            ))}
-                          </div>
-                        ) : (
-                          <div className="pl-12 py-1 pb-2 text-[12px] text-claude-textSecondary/60 italic pointer-events-none">
-                            Empty directory
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  };
 
   return (
     <div className="flex h-full w-full bg-claude-bg text-claude-text font-sans">
@@ -420,7 +483,7 @@ const CustomizePage = () => {
                   <>
                     <div className="fixed inset-0 z-40" onClick={() => setShowPlusMenu(false)} />
                     <div className="absolute top-full right-0 mt-2 w-64 bg-white dark:bg-[#202020] rounded-[16px] shadow-[0_4px_24px_rgba(0,0,0,0.15)] border border-claude-border py-2 z-50">
-                      <button className="w-full flex items-center gap-3.5 px-4 py-3 text-[14.5px] font-medium text-claude-text hover:bg-black/5 dark:hover:bg-white/5 transition-colors text-left" onClick={() => setShowPlusMenu(false)}>
+                      <button className="w-full flex items-center gap-3.5 px-4 py-3 text-[14.5px] font-medium text-claude-text hover:bg-black/5 dark:hover:bg-white/5 transition-colors text-left" onClick={() => { setShowPlusMenu(false); onCreateWithClaude?.(); }}>
                         <MessageSquare size={18} className="text-claude-textSecondary" />
                         Create with Claude
                       </button>
@@ -428,7 +491,7 @@ const CustomizePage = () => {
                         <ClipboardList size={18} className="text-claude-textSecondary" />
                         Write skill instructions
                       </button>
-                      <button className="w-full flex items-center gap-3.5 px-4 py-3 text-[14.5px] font-medium text-claude-text hover:bg-black/5 dark:hover:bg-white/5 transition-colors text-left" onClick={() => setShowPlusMenu(false)}>
+                      <button className="w-full flex items-center gap-3.5 px-4 py-3 text-[14.5px] font-medium text-claude-text hover:bg-black/5 dark:hover:bg-white/5 transition-colors text-left" onClick={() => { setShowPlusMenu(false); setShowUploadModal(true); }}>
                         <Upload size={18} className="text-claude-textSecondary" />
                         Upload a skill
                       </button>
@@ -473,6 +536,13 @@ const CustomizePage = () => {
                         skill={skill}
                         isExpanded={expandedSkills.has(skill.id)}
                         onExpand={(e) => toggleSkillExpand(skill.id, e)}
+                        selectedSkillId={selectedSkillId}
+                        detail={detail}
+                        selectSkill={selectSkill}
+                        selectedFile={selectedFile}
+                        setSelectedFile={setSelectedFile}
+                        setSelectedSkillId={setSelectedSkillId}
+                        loadFileContent={loadFileContent}
                       />
                     ))}
                   </div>
@@ -501,6 +571,13 @@ const CustomizePage = () => {
                             skill={skill}
                             isExpanded={expandedSkills.has(skill.id)}
                             onExpand={(e) => toggleSkillExpand(skill.id, e)}
+                            selectedSkillId={selectedSkillId}
+                            detail={detail}
+                            selectSkill={selectSkill}
+                            selectedFile={selectedFile}
+                            setSelectedFile={setSelectedFile}
+                            setSelectedSkillId={setSelectedSkillId}
+                            loadFileContent={loadFileContent}
                           />
                         ))}
                       </div>
@@ -624,7 +701,7 @@ const CustomizePage = () => {
             </div>
           </div>
         ) : tab === 'connectors' ? (
-          <div className="flex items-center justify-center h-full bg-claude-bg">
+          <div className="flex-1 h-full bg-claude-bg overflow-y-auto">
             {selectedConnector === 'github' ? (
               githubConnected ? (
                 <div className="h-full flex flex-col">
@@ -763,7 +840,7 @@ const CustomizePage = () => {
 
             {/* Content Area */}
             <div className="flex-1 overflow-y-auto px-8 pb-8">
-              <div className="border border-claude-border rounded-xl bg-white dark:bg-[#1a1a1a] overflow-hidden shadow-sm">
+              <div className="border border-claude-border rounded-xl bg-white dark:bg-[#30302E] overflow-hidden shadow-sm">
                 <div className="flex items-center justify-end px-4 py-2 border-b border-claude-border bg-claude-bg/50">
                   <button
                     onClick={() => setViewMode(viewMode === 'preview' ? 'code' : 'preview')}
@@ -777,16 +854,24 @@ const CustomizePage = () => {
                 <div className="p-6 min-h-[400px]">
                   {viewMode === 'preview' ? (
                     <div className="prose prose-sm max-w-none dark:prose-invert">
-                      {selectedFile === 'SKILL.md' ? (
-                        <MarkdownRenderer content={detail.content || ''} />
-                      ) : (
-                        <div className="text-claude-textSecondary italic py-4">No rich preview available for {selectedFile}. Please switch to Code view.</div>
-                      )}
+                      <MarkdownRenderer content={selectedFile === 'SKILL.md' ? (detail.content || '') : (fileContent || '')} />
                     </div>
                   ) : (
-                    <pre className="text-[13.5px] font-mono text-claude-text whitespace-pre-wrap leading-relaxed">
-                      {selectedFile === 'SKILL.md' ? detail.content : `// Mock content for ${selectedFile}\n\n// Content loading from local system is not fully implemented in the mock preview.\n\nconsole.log('Previewing ${selectedFile}');`}
-                    </pre>
+                    <div className="mx-auto w-full">
+                      <CodeBlock
+                        className="!border-transparent !bg-transparent !my-0"
+                        language={
+                          selectedFile.endsWith('.py') ? 'python' :
+                            selectedFile.endsWith('.js') || selectedFile.endsWith('.jsx') ? 'javascript' :
+                              selectedFile.endsWith('.ts') || selectedFile.endsWith('.tsx') ? 'typescript' :
+                                selectedFile.endsWith('.css') ? 'css' :
+                                  selectedFile.endsWith('.html') ? 'html' :
+                                    selectedFile.endsWith('.json') ? 'json' :
+                                      selectedFile.endsWith('.sh') ? 'bash' : 'text'
+                        }
+                        code={selectedFile === 'SKILL.md' ? (detail.content || '') : (fileContent || '')}
+                      />
+                    </div>
                   )}
                 </div>
               </div>
@@ -801,6 +886,45 @@ const CustomizePage = () => {
           </div>
         )}
       </div>
+
+      {showUploadModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-[#242424] w-[460px] rounded-[16px] flex flex-col shadow-[0_10px_40px_rgba(0,0,0,0.5)] relative border border-white/10 overflow-hidden">
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 pt-6 pb-4">
+              <h3 className="text-[16px] font-semibold text-white tracking-wide">Upload skill</h3>
+              <button
+                onClick={() => setShowUploadModal(false)}
+                className="text-white/50 hover:text-white/80 transition-colors"
+              >
+                <X size={18} strokeWidth={2} />
+              </button>
+            </div>
+
+            {/* Dropzone */}
+            <div className="mx-6 mb-6 p-8 border border-dashed border-white/20 rounded-xl flex flex-col items-center justify-center bg-white/[0.02] cursor-pointer hover:bg-white/[0.05] transition-colors group">
+              <FolderPlus size={22} className="text-white/50 group-hover:text-white/70 transition-colors mb-3 stroke-[1.5]" />
+              <div className="text-[13px] text-white/50 group-hover:text-white/70 transition-colors">
+                Drag and drop or click to upload
+              </div>
+            </div>
+
+            {/* Requirements Details */}
+            <div className="px-6 pb-8">
+              <div className="text-[12px] font-medium text-white/60 mb-2.5">File requirements</div>
+              <ul className="list-disc pl-4 text-[12px] text-white/50 space-y-1.5 mb-5 marker:text-white/30">
+                <li>.md file must contain skill name and description formatted in YAML</li>
+                <li>.zip or .skill file must include a SKILL.md file</li>
+              </ul>
+              <div className="text-[12px] text-white/50">
+                <a href="#" className="underline hover:text-white/70 underline-offset-2 transition-colors">Read more about creating skills</a>
+                <span> or </span>
+                <a href="#" className="underline hover:text-white/70 underline-offset-2 transition-colors">see an example</a>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

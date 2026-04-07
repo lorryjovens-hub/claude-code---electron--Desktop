@@ -2063,237 +2063,38 @@ You have the following skills available. When a user's request matches a skill's
     }
 
 
-    // ============ PERSISTENT ENGINE POOL ============
-    const MAX_ENGINE_POOL_SIZE = 3;
-    const enginePool = new Map();
-    const HIDDEN_TOOLS = new Set(['EnterWorktree', 'ExitWorktree', 'TodoWrite', 'WebSearch', 'WebFetch']);
-
-    function killEngine(convId) {
-        const eng = enginePool.get(convId);
-        if (!eng) return;
-        console.log('[EnginePool] Killing engine for', convId);
-        try { eng.child.stdin.end(); } catch (_) {}
-        try { eng.child.kill(); } catch (_) {}
-        enginePool.delete(convId);
-        activeChildren.delete(convId);
-    }
-    function evictOldestEngine() {
-        if (enginePool.size < MAX_ENGINE_POOL_SIZE) return;
-        let oldestId = null, oldestTime = Infinity;
-        for (const [id, eng] of enginePool) {
-            if (eng.state === 'processing') continue;
-            if (eng.lastUsed < oldestTime) { oldestTime = eng.lastUsed; oldestId = id; }
-        }
-        if (oldestId) killEngine(oldestId);
-    }
-    function isEngineAlive(eng) { return eng && eng.child && !eng.child.killed && eng.child.exitCode === null; }
-
-    function buildChatSystemPrompt(conv, user_mode, user_profile) {
-        let sysPrompt = (user_mode === 'selfhosted' ? customSystemPromptClean : customSystemPromptFull) || '';
-        if (user_profile) {
-            const parts = [];
-            if (user_profile.work_function) parts.push('Occupation: ' + user_profile.work_function);
-            if (user_profile.personal_preferences) parts.push('User preferences: ' + user_profile.personal_preferences);
-            if (parts.length > 0) sysPrompt += '\n\n<user_profile>\n' + parts.join('\n') + '\n</user_profile>';
-        }
-        if (conv.project_id) {
-            const project = db.projects.find(p => p.id === conv.project_id);
-            if (project) {
-                if (project.instructions && project.instructions.trim()) sysPrompt += '\n\n<project_instructions>\n' + project.instructions.trim() + '\n</project_instructions>';
-                const pFiles = db.project_files.filter(f => f.project_id === project.id);
-                if (pFiles.length > 0) {
-                    // Copy project files to workspace so the engine can read them with tools
-                    for (const pf of pFiles) {
-                        const destPath = path.join(conv.workspace_path, pf.file_name);
-                        if (!fs.existsSync(destPath)) {
-                            // Prefer original file on disk; fall back to extracted_text
-                            if (pf.file_path && fs.existsSync(pf.file_path)) {
-                                try { fs.copyFileSync(pf.file_path, destPath); } catch (_) {}
-                            } else if (pf.extracted_text) {
-                                try { fs.writeFileSync(destPath, pf.extracted_text, 'utf8'); } catch (_) {}
-                            }
-                        }
-                    }
-                    // Only list filenames in the prompt — model reads files on-demand via Read tool
-                    const textExts = ['.txt', '.md', '.json', '.xml', '.yaml', '.yml', '.csv', '.html', '.css', '.js', '.ts', '.tsx', '.jsx', '.py', '.java', '.c', '.cpp', '.h', '.go', '.rs', '.rb', '.php', '.sql', '.sh', '.lua', '.r'];
-                    let c = '\n\n<project_knowledge_base>\nThe following project files are available in the workspace. Read them when needed:\n';
-                    for (const pf of pFiles) {
-                        const ext = path.extname(pf.file_name).toLowerCase();
-                        const isText = textExts.includes(ext);
-                        c += '- ./' + pf.file_name + ' (' + Math.round((pf.file_size || 0) / 1024) + ' KB' + (isText ? '' : ', binary') + ')\n';
-                    }
-                    sysPrompt += c + '</project_knowledge_base>';
-                }
-            }
-        }
-        return sysPrompt;
-    }
-    function resolveChatConfig(conv, user_mode, env_token, env_base_url) {
-        const rawModel = conv.model || 'claude-sonnet-4-6';
-        const modelId = rawModel.replace(/-thinking$/, '');
-        const provider = user_mode === 'selfhosted' ? resolveProvider(modelId) : null;
-        let apiKey, baseUrl, apiFormat = 'anthropic';
-        if (provider) { apiKey = provider.apiKey; baseUrl = provider.baseUrl; apiFormat = provider.format || 'anthropic'; console.log('[Chat] Provider:', provider.name, '| format:', apiFormat, '| model:', modelId); }
-        else { const validToken = (env_token && env_token !== 'self-hosted') ? env_token : ''; apiKey = validToken || engineEnvVars.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY; baseUrl = validToken ? (env_base_url || engineEnvVars.ANTHROPIC_BASE_URL || process.env.ANTHROPIC_BASE_URL) : (engineEnvVars.ANTHROPIC_BASE_URL || env_base_url || process.env.ANTHROPIC_BASE_URL); }
-        return { modelId, provider, apiKey, baseUrl, apiFormat };
-    }
-
-    function handleTurnEvent(engine, convId, conv, evt) {
-        const turn = engine.turn;
-        if (!turn || !turn.sendSSE) return;
-        const sendSSE = turn.sendSSE;
-        const ensureStart = (id) => { if (!turn.sentToolStarts.has(id)) { var t = turn.toolCalls.get(id); if (t && !HIDDEN_TOOLS.has(t.name)) { turn.sentToolStarts.add(id); sendSSE({ type: 'tool_use_start', tool_use_id: t.id, tool_name: t.name, tool_input: t.input || {} }); } } };
-
-        if (evt.type === 'stream_event' && evt.event) {
-            var se = evt.event;
-            if (se.type === 'content_block_delta') {
-                if (se.delta && se.delta.type === 'text_delta') { turn.assistantText += se.delta.text; turn.pendingWorkText += se.delta.text; sendSSE({ type: 'content_block_delta', delta: { type: 'text_delta', text: se.delta.text } }); }
-                else if (se.delta && se.delta.type === 'thinking_delta') { turn.thinkingText += se.delta.thinking; sendSSE({ type: 'content_block_delta', delta: { type: 'thinking_delta', thinking: se.delta.thinking } }); }
-            } else if (se.type === 'content_block_start' && se.content_block && se.content_block.type === 'tool_use') {
-                var tu = se.content_block; turn.toolCalls.set(tu.id, { id: tu.id, name: tu.name, input: {}, status: 'running', textBefore: turn.pendingWorkText.trim() }); turn.toolCallOrder.push(tu.id); turn.pendingWorkText = '';
-            }
-        }
-        else if (evt.type === 'assistant' && evt.message && evt.message.content) {
-            for (var block of evt.message.content) {
-                if (block.type !== 'tool_use') continue;
-                var tc = turn.toolCalls.get(block.id);
-                if (tc) { tc.input = block.input; } else { tc = { id: block.id, name: block.name, input: block.input, status: 'running', textBefore: turn.pendingWorkText.trim() }; turn.toolCalls.set(block.id, tc); turn.toolCallOrder.push(block.id); turn.pendingWorkText = ''; }
-                if (block.name === 'WebSearch' && !turn.sentToolStarts.has(block.id)) { turn.sentToolStarts.add(block.id); sendSSE({ type: 'status', message: 'Searching: ' + ((block.input && block.input.query) || 'the web') }); }
-                else if (block.name === 'WebFetch' && !turn.sentToolStarts.has(block.id)) { turn.sentToolStarts.add(block.id); sendSSE({ type: 'status', message: 'Fetching: ' + ((block.input && block.input.url) || '') }); }
-                else if (!turn.sentToolStarts.has(block.id) && !HIDDEN_TOOLS.has(block.name)) { turn.sentToolStarts.add(block.id); sendSSE({ type: 'tool_use_start', tool_use_id: block.id, tool_name: block.name, tool_input: block.input }); console.log('[Tool]', block.name, JSON.stringify(block.input || {}).slice(0, 120)); }
-            }
-        }
-        else if (evt.type === 'user' && evt.message && evt.message.content) {
-            var contentArr = Array.isArray(evt.message.content) ? evt.message.content : [];
-            for (var ci = 0; ci < contentArr.length; ci++) {
-                var cb = contentArr[ci]; if (cb.type !== 'tool_result' || !cb.tool_use_id) continue;
-                var tc3 = turn.toolCalls.get(cb.tool_use_id), tn = tc3 ? tc3.name : '';
-                var trText = ''; if (typeof cb.content === 'string') trText = cb.content; else if (Array.isArray(cb.content)) trText = cb.content.map(function(x) { return x.text || ''; }).join('');
-                if (tc3) { tc3.status = cb.is_error ? 'error' : 'done'; tc3.result = trText; }
-                turn.lastToolDoneTextLen = turn.assistantText.length;
-                if (tn === 'WebSearch' && trText) { try { var wsQ = ''; var qM = trText.match(/query:\s*"([^"]+)"/); if (qM) wsQ = qM[1]; var wsS = []; var lM = trText.match(/Links:\s*(\[[\s\S]*?\])\s*\n/); if (lM) { try { var lnk = JSON.parse(lM[1]); if (Array.isArray(lnk)) wsS = lnk.filter(function(l){return l.url;}).map(function(l){return {url:l.url,title:l.title||''};}); } catch(_){} } if (wsS.length>0&&wsQ) { sendSSE({type:'search_sources',sources:wsS,query:wsQ}); turn.searchLogs.push({query:wsQ,results:wsS}); } } catch(_){} }
-                if (!HIDDEN_TOOLS.has(tn)) { ensureStart(cb.tool_use_id); sendSSE({ type: 'tool_use_done', tool_use_id: cb.tool_use_id, content: trText.slice(0, 50000), is_error: cb.is_error || false }); }
-            }
-        }
-        else if (evt.type === 'tool') {
-            var resultText = typeof evt.content === 'string' ? evt.content : Array.isArray(evt.content) ? evt.content.map(function(b){return b.text||'';}).join('') : '';
-            var tc2 = turn.toolCalls.get(evt.tool_use_id), toolName = tc2 ? tc2.name : '';
-            if (tc2) { tc2.status = evt.is_error ? 'error' : 'done'; tc2.result = resultText; }
-            if (toolName === 'WebSearch' && resultText) { try { var qm2=resultText.match(/query:\s*"([^"]+)"/); var lm2=resultText.match(/Links:\s*(\[[\s\S]*?\])\s*\n/); if(qm2&&lm2){var lk2=JSON.parse(lm2[1]); var sr=lk2.filter(function(l){return l.url;}).map(function(l){return{url:l.url,title:l.title||''};});if(sr.length>0)sendSSE({type:'search_sources',sources:sr,query:qm2[1]});} } catch(_){} }
-            if (toolName === 'Write' && tc2 && tc2.input && tc2.input.file_path) { var prevId = turn.writtenFiles.get(tc2.input.file_path); if (prevId) turn.toolCalls.delete(prevId); turn.writtenFiles.set(tc2.input.file_path, evt.tool_use_id); }
-            if (!HIDDEN_TOOLS.has(toolName)) { ensureStart(evt.tool_use_id); sendSSE({ type: 'tool_use_done', tool_use_id: evt.tool_use_id, content: resultText.slice(0, 50000), is_error: evt.is_error || false }); }
-        }
-        else if (evt.type === 'control_request' && evt.request) {
-            var req2 = evt.request;
-            if (req2.subtype === 'can_use_tool' && req2.tool_name === 'AskUserQuestion') {
-                askUserPendingInputs.set(convId, req2.input || {});
-                sendSSE({ type: 'ask_user', request_id: evt.request_id, tool_use_id: req2.tool_use_id, questions: (req2.input && req2.input.questions) || [] });
-            } else {
-                var ar = JSON.stringify({ type: 'control_response', response: { subtype: 'success', request_id: evt.request_id, response: { toolUseID: req2.tool_use_id, behavior: 'allow', updatedInput: req2.input || {} } } }) + '\n';
-                try { engine.child.stdin.write(ar); } catch (_) {}
-            }
-        }
-        else if (evt.type === 'system' && (evt.subtype === 'task_started' || evt.subtype === 'task_progress' || evt.subtype === 'task_notification')) {
-            sendSSE({ type: 'task_event', subtype: evt.subtype, task_id: evt.task_id, description: evt.description, status: evt.status, summary: evt.summary, usage: evt.usage, last_tool_name: evt.last_tool_name });
-        }
-        else if (evt.type === 'system' && evt.subtype === 'compact_boundary') {
-            var meta = evt.compact_metadata || {}; sendSSE({ type: 'compact_boundary', compact_metadata: meta });
-            db.messages.push({ id: uuidv4(), conversation_id: convId, role: 'system', content: JSON.stringify([{ type: 'text', text: 'Context auto-compacted by engine.' }]), created_at: new Date().toISOString(), is_compact_boundary: true }); saveDb();
-        }
-    }
-
-    function finishTurn(engine, convId, conv) {
-        const turn = engine.turn; if (!turn) return;
-        engine.turn = null; engine.state = 'idle';
-        if (turn.assistantText || turn.thinkingText || turn.toolCalls.size > 0) {
-            db.messages.push({ id: uuidv4(), conversation_id: convId, role: 'assistant', content: JSON.stringify([{ type: 'text', text: turn.assistantText }]), created_at: new Date().toISOString(), thinking: turn.thinkingText || undefined, toolCalls: turn.toolCalls.size > 0 ? turn.toolCallOrder.map(id => turn.toolCalls.get(id)).filter(Boolean) : undefined, toolTextEndOffset: (turn.toolCalls.size > 0 && turn.lastToolDoneTextLen > 0) ? turn.lastToolDoneTextLen : undefined, searchLogs: turn.searchLogs.length > 0 ? turn.searchLogs : undefined });
-            saveDb();
-            generateTitleAsync(convId, turn.message.slice(0, 300), turn.assistantText.slice(0, 300), turn.apiKey, turn.baseUrl, conv.model, turn.apiFormat);
-        }
-        if (turn.toolCalls.size > 0 && turn.lastToolDoneTextLen > 0) turn.sendSSE({ type: 'tool_text_offset', offset: turn.lastToolDoneTextLen });
-        pendingImageBlocks.delete(convId);
-        turn.sendSSE({ type: 'message_stop' });
-        endStream(convId);
-        if (turn.resolve) turn.resolve();
-    }
-
-    function spawnPersistentEngine(convId, conv, config) {
-        const { modelId, apiKey, baseUrl, apiFormat, sysPrompt } = config;
-        evictOldestEngine();
-        const cliArgs = ['--preload', enginePreload, '--env-file=' + engineEnv, engineCli, '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--bare', '--include-partial-messages', '--permission-mode', 'bypassPermissions', '--model', modelId];
-        if (conv.claude_session_id) cliArgs.push('--resume', conv.claude_session_id);
-        if (sysPrompt) cliArgs.push('--append-system-prompt', sysPrompt);
-        const envVars = Object.assign({}, process.env);
-        if (apiFormat === 'openai' && proxyPort > 0) {
-            proxyTarget = { apiKey, baseUrl, model: modelId, format: 'openai', conversationId: convId };
-            envVars.ANTHROPIC_API_KEY = 'proxy-key'; envVars.ANTHROPIC_BASE_URL = 'http://127.0.0.1:' + proxyPort + '/v1';
-            try { const warmUrl = new URL(normalizeBaseUrl(baseUrl)); require('dns').resolve4(warmUrl.hostname, () => {}); fetch(warmUrl.origin, { method: 'HEAD', signal: AbortSignal.timeout(5000) }).catch(() => {}); } catch (_) {}
-            console.log('[EnginePool] OpenAI proxy, model=' + modelId);
-        } else { if (apiKey) envVars.ANTHROPIC_API_KEY = apiKey; if (baseUrl) envVars.ANTHROPIC_BASE_URL = normalizeBaseUrl(baseUrl); }
-        console.log('[EnginePool] Spawning persistent engine, conv=' + convId + ' model=' + modelId + ' session=' + (conv.claude_session_id || 'new'));
-        const { spawn } = require('child_process');
-        const child = spawn(bunExePath, cliArgs, { cwd: conv.workspace_path, env: envVars, stdio: ['pipe', 'pipe', 'pipe'] });
-        const engine = { child, convId, modelId, apiKey, baseUrl, apiFormat, lastUsed: Date.now(), sessionId: conv.claude_session_id, state: 'idle', buf: '', turn: null };
-        activeChildren.set(convId, child);
-
-        child.stdout.on('data', (chunk) => {
-            engine.buf += chunk.toString('utf8');
-            const lines = engine.buf.split('\n'); engine.buf = lines.pop() || '';
-            for (const line of lines) {
-                if (!line.trim()) continue; let evt; try { evt = JSON.parse(line); } catch { continue; }
-                if (evt.session_id && !engine.sessionId) { engine.sessionId = evt.session_id; conv.claude_session_id = engine.sessionId; saveDb(); }
-                if (evt.type !== 'stream_event') console.log('[Engine-evt]', evt.type, evt.subtype || '', evt.tool_use_id ? 'tool_id=' + evt.tool_use_id : '');
-                if (evt.type === 'system' && evt.subtype === 'init') { console.log('[EnginePool] Engine init event for', convId); continue; }
-                if (evt.type === 'result') { if (engine.turn) { if (!engine.turn.assistantText && evt.result) engine.turn.assistantText = typeof evt.result === 'string' ? evt.result : ''; finishTurn(engine, convId, conv); } continue; }
-                if (!engine.turn) continue;
-                handleTurnEvent(engine, convId, conv, evt);
-            }
-        });
-        let stderrBuf = '';
-        child.stderr.on('data', (c) => { stderrBuf += c.toString('utf8'); });
-        child.on('close', (code) => {
-            console.log('[EnginePool] Engine closed, code=' + code + ', conv=' + convId, stderrBuf ? '| stderr: ' + stderrBuf.slice(0, 300) : '');
-            if (engine.state === 'processing' && engine.turn) {
-                const turn = engine.turn;
-                if (turn.sendSSE) { if (!turn.assistantText) turn.sendSSE({ type: 'error', error: stderrBuf.slice(0, 300) || 'Engine exit ' + code }); else turn.sendSSE({ type: 'content_block_delta', delta: { type: 'text_delta', text: '\n\n⚠️ Engine exited unexpectedly.' } }); turn.sendSSE({ type: 'message_stop' }); endStream(convId); }
-                if (turn.resolve) turn.resolve();
-            }
-            enginePool.delete(convId); activeChildren.delete(convId);
-        });
-        child.on('error', (err) => { console.error('[EnginePool] Error:', err.message); if (engine.state === 'processing' && engine.turn && engine.turn.resolve) engine.turn.resolve(); enginePool.delete(convId); activeChildren.delete(convId); });
-        enginePool.set(convId, engine);
-        return engine;
-    }
-
-    // Pre-warm endpoint
-    server.post('/api/conversations/:id/warm', (req, res) => {
-        const convId = req.params.id;
-        const existing = enginePool.get(convId);
-        if (existing && isEngineAlive(existing)) { existing.lastUsed = Date.now(); return res.json({ ok: true, cached: true, state: existing.state }); }
-        const conv = db.conversations.find(c => c.id === convId);
-        if (!conv) return res.status(404).json({ error: 'Not found' });
-        const { env_token, env_base_url, user_mode, user_profile } = req.body || {};
-        const config = resolveChatConfig(conv, user_mode, env_token, env_base_url);
-        const sysPrompt = buildChatSystemPrompt(conv, user_mode, user_profile);
-        console.log('[EnginePool] Pre-warming engine for', convId, 'model=' + config.modelId);
-        spawnPersistentEngine(convId, conv, { ...config, sysPrompt });
-        res.json({ ok: true });
-    });
-
-    // Chat endpoint (persistent engine)
     server.post('/api/chat', async (req, res) => {
         const { conversation_id, message, attachments, env_token, env_base_url, user_mode, user_profile } = req.body;
         const conv = db.conversations.find(c => c.id === conversation_id);
         if (!conv) return res.status(404).json({ error: 'Conversation not found' });
+
         res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
         res.setHeader('Cache-Control', 'no-cache');
         res.setHeader('Connection', 'keep-alive');
+
+        // Initialize stream buffer for this conversation
         res.flushHeaders();
         activeStreams.set(conversation_id, { events: [], listeners: new Set(), done: false, primaryRes: res });
-        const sendSSE = (data) => { var stream = activeStreams.get(conversation_id); if (stream) { stream.events.push(data); var line = 'data: ' + JSON.stringify(data) + '\n\n'; var arr = Array.from(stream.listeners); for (var i = 0; i < arr.length; i++) { try { arr[i].write(line); } catch (_) { stream.listeners.delete(arr[i]); } } } try { res.write('data: ' + JSON.stringify(data) + '\n\n'); } catch (_) {} };
+        const sendSSE = (data) => {
+            // Always write to primary response directly (original POST requester)
+            var stream = activeStreams.get(conversation_id);
+            if (stream) {
+                stream.events.push(data);
+                // Write to reconnect listeners
+                var line = 'data: ' + JSON.stringify(data) + '\n\n';
+                var arr = Array.from(stream.listeners);
+                for (var i = 0; i < arr.length; i++) {
+                    try { arr[i].write(line); } catch (_) { stream.listeners.delete(arr[i]); }
+                }
+            }
+            // Always write to the original POST response
+            try { res.write('data: ' + JSON.stringify(data) + '\n\n'); } catch (_) {}
+        };
 
         try {
-            // ── 0. Skill rewrite ──
+            // ── 0. Transform /skill-name invocations into normal prompts ──
+            // Don't let the engine handle it as a slash command (internal injection).
+            // Instead, rewrite so the model uses the Skill tool to read SKILL.md visibly.
             let message_rewritten = message;
             const skillSlashMatch = message.match(/^\/([a-zA-Z0-9_-]+)\s*([\s\S]*)$/);
             if (skillSlashMatch) {
@@ -2372,38 +2173,417 @@ You have the following skills available. When a user's request matches a skill's
             });
             saveDb();
 
-            // ── 3. Get or create persistent engine ──
-            const config = resolveChatConfig(conv, user_mode, env_token, env_base_url);
-            let engine = enginePool.get(conversation_id);
-            if (engine && (!isEngineAlive(engine) || engine.modelId !== config.modelId)) { killEngine(conversation_id); engine = null; }
-            if (!engine) {
-                const sysPrompt = buildChatSystemPrompt(conv, user_mode, user_profile);
-                engine = spawnPersistentEngine(conversation_id, conv, { ...config, sysPrompt });
+            // ── 3. Build system prompt ──
+            // Self-hosted users don't need anti-Kiro identity override (their providers are clean)
+            let sysPrompt = (user_mode === 'selfhosted' ? customSystemPromptClean : customSystemPromptFull) || '';
+
+            // Inject user profile preferences
+            if (user_profile) {
+                const parts = [];
+                if (user_profile.work_function) parts.push('Occupation: ' + user_profile.work_function);
+                if (user_profile.personal_preferences) parts.push('User preferences: ' + user_profile.personal_preferences);
+                if (parts.length > 0) {
+                    sysPrompt += '\n\n<user_profile>\n' + parts.join('\n') + '\n</user_profile>';
+                }
             }
-            if (!isEngineAlive(engine)) throw new Error('Engine failed to start');
-            if (engine.state === 'processing') { await new Promise(r => setTimeout(r, 500)); if (engine.state === 'processing') throw new Error('Engine busy'); }
-
-            // ── 4. Start new turn ──
-            engine.state = 'processing';
-            engine.lastUsed = Date.now();
-            if (config.apiFormat === 'openai' && proxyPort > 0) {
-                proxyTarget = { apiKey: config.apiKey, baseUrl: config.baseUrl, model: config.modelId, format: 'openai', conversationId: conversation_id };
+            if (conv.project_id) {
+                const project = db.projects.find(p => p.id === conv.project_id);
+                if (project) {
+                    if (project.instructions && project.instructions.trim()) sysPrompt += '\n\n<project_instructions>\n' + project.instructions.trim() + '\n</project_instructions>';
+                    const pFiles = db.project_files.filter(f => f.project_id === project.id);
+                    if (pFiles.length > 0) {
+                        const withText = pFiles.filter(f => f.extracted_text);
+                        const totalSz = withText.reduce((s, f) => s + (f.extracted_text ? f.extracted_text.length : 0), 0);
+                        if (totalSz <= 80000 && withText.length > 0) {
+                            let c = '\n\n<project_knowledge_base>\n';
+                            for (const pf of withText) c += '\n--- ' + pf.file_name + ' ---\n' + pf.extracted_text + '\n';
+                            sysPrompt += c + '</project_knowledge_base>';
+                        } else {
+                            let c = '\n\n<project_knowledge_base>\nFiles in workspace:\n';
+                            for (const pf of pFiles) c += '- ' + pf.file_name + ' (' + Math.round((pf.file_size || 0) / 1024) + ' KB)\n';
+                            sysPrompt += c + 'Read only when needed.\n</project_knowledge_base>';
+                        }
+                    }
+                }
             }
-            engine.turn = {
-                sendSSE, assistantText: '', thinkingText: '',
-                toolCalls: new Map(), toolCallOrder: [], sentToolStarts: new Set(),
-                writtenFiles: new Map(), searchLogs: [],
-                lastToolDoneTextLen: 0, pendingWorkText: '',
-                message: message,
-                apiKey: config.apiKey, baseUrl: config.baseUrl, apiFormat: config.apiFormat,
-                resolve: null,
-            };
 
-            // Write user message to stdin (stream-json format)
-            engine.child.stdin.write(JSON.stringify({ type: 'user', message: { role: 'user', content: finalPrompt }, uuid: uuidv4() }) + '\n');
+            // ── 4. Resolve provider & launch Claude Code engine (unified for all messages) ──
+            const rawModel = conv.model || 'claude-sonnet-4-6';
+            const modelId = rawModel.replace(/-thinking$/, '');
 
-            // Wait for turn to complete
-            await new Promise(resolve => { engine.turn.resolve = resolve; });
+            // Try provider system only for self-hosted users
+            const provider = user_mode === 'selfhosted' ? resolveProvider(modelId) : null;
+            let apiKey, baseUrl, apiFormat = 'anthropic';
+            if (provider) {
+                apiKey = provider.apiKey;
+                baseUrl = provider.baseUrl;
+                apiFormat = provider.format || 'anthropic';
+                console.log('[Chat] Provider:', provider.name, '| format:', apiFormat, '| model:', modelId);
+            } else {
+                // Fallback: frontend token → engine env → process env (Clawparrot path)
+                const validToken = (env_token && env_token !== 'self-hosted') ? env_token : '';
+                apiKey = validToken || engineEnvVars.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY;
+                baseUrl = validToken ? (env_base_url || engineEnvVars.ANTHROPIC_BASE_URL || process.env.ANTHROPIC_BASE_URL) : (engineEnvVars.ANTHROPIC_BASE_URL || env_base_url || process.env.ANTHROPIC_BASE_URL);
+                console.log('[Chat] Key source:', validToken ? 'user' : engineEnvVars.ANTHROPIC_API_KEY ? 'engine-env' : 'process-env', '| baseUrl:', baseUrl);
+            }
+
+            // ── All messages go through the Claude Code engine (no separate vision path) ──
+
+            const cliArgs = [
+                '--preload', enginePreload,
+                '--env-file=' + engineEnv, engineCli,
+                '-p', finalPrompt,
+                '--output-format', 'stream-json',
+                '--verbose',
+                '--bare',
+                '--include-partial-messages',
+                '--permission-mode', 'bypassPermissions',
+                '--model', modelId,
+            ];
+            if (conv.claude_session_id) cliArgs.push('--resume', conv.claude_session_id);
+            // Write system prompt to file to avoid ENAMETOOLONG on Windows
+            // (project knowledge base can make the prompt very large)
+            let sysPromptFile = null;
+            if (sysPrompt) {
+                sysPromptFile = path.join(conv.workspace_path, '.sys-prompt.tmp');
+                fs.writeFileSync(sysPromptFile, sysPrompt, 'utf8');
+                cliArgs.push('--append-system-prompt-file', sysPromptFile);
+            }
+
+            const envVars = Object.assign({}, process.env);
+            if (apiFormat === 'openai' && proxyPort > 0) {
+                // OpenAI provider: route engine through local conversion proxy
+                proxyTarget = { apiKey, baseUrl, model: modelId, format: 'openai', conversationId: conversation_id };
+                envVars.ANTHROPIC_API_KEY = 'proxy-key'; // engine needs a non-empty key
+                envVars.ANTHROPIC_BASE_URL = 'http://127.0.0.1:' + proxyPort + '/v1';
+                // Pre-warm DNS + TCP connection to upstream while engine is starting up
+                // This eliminates cold-start DNS/TLS latency on the first API call
+                try {
+                    const warmUrl = new URL(normalizeBaseUrl(baseUrl));
+                    require('dns').resolve4(warmUrl.hostname, () => {}); // async DNS prefetch
+                    // Also do a lightweight HEAD request to warm up TCP+TLS (fire-and-forget)
+                    fetch(warmUrl.origin, { method: 'HEAD', signal: AbortSignal.timeout(5000) }).catch(() => {});
+                } catch (_) {}
+                console.log('[Engine] Routing through OpenAI proxy, model=' + modelId + ' provider=' + (provider ? provider.name : '?'));
+            } else {
+                if (apiKey) envVars.ANTHROPIC_API_KEY = apiKey;
+                if (baseUrl) envVars.ANTHROPIC_BASE_URL = normalizeBaseUrl(baseUrl);
+            }
+
+            const bunExe = bunExePath;
+
+            console.log('[Engine] model=' + modelId + ' session=' + (conv.claude_session_id || 'new'));
+            const { spawn } = require('child_process');
+            const child = spawn(bunExe, cliArgs, {
+                cwd: conv.workspace_path, env: envVars,
+                stdio: ['pipe', 'pipe', 'pipe'],
+            });
+            // Keep stdin open for control_response (AskUserQuestion)
+            // Store child ref so the answer endpoint can write to it
+            const childRef = child;
+            activeChildren.set(conversation_id, childRef);
+
+            // ── 5. Parse stream-json and forward to frontend ──
+            let assistantText = '';
+            let thinkingText = '';
+            let lastToolDoneTextLen = 0; // text length when last tool result arrives
+            let pendingWorkText = ''; // text accumulated since last tool event (for interleaving)
+            const toolCallOrder = []; // ordered list of tool IDs for timeline reconstruction
+            const toolCalls = new Map();
+            const sentToolStarts = new Set(); // track which tool_use_start we already sent
+            const writtenFiles = new Map(); // deduplicate Write tool results by file path
+            const searchLogs = []; // collect WebSearch results for persistence
+            let sessionId = conv.claude_session_id;
+            let buf = '';
+
+            // Tools that are internal to Claude Code and should not be shown to the user
+            const HIDDEN_TOOLS = new Set(['EnterWorktree', 'ExitWorktree', 'TodoWrite', 'WebSearch', 'WebFetch']);
+
+            // Ensure tool_use_start is sent before tool_use_done — if the 'assistant' event was
+            // missing or arrived out of order, we back-fill it from the toolCalls map
+            function ensureToolStartSent(toolUseId) {
+                if (sentToolStarts.has(toolUseId)) return;
+                var tc = toolCalls.get(toolUseId);
+                if (!tc || HIDDEN_TOOLS.has(tc.name)) return;
+                sentToolStarts.add(toolUseId);
+                sendSSE({ type: 'tool_use_start', tool_use_id: tc.id, tool_name: tc.name, tool_input: tc.input || {} });
+            }
+
+            child.stdout.on('data', (chunk) => {
+                buf += chunk.toString('utf8');
+                const lines = buf.split('\n');
+                buf = lines.pop() || '';
+
+                for (const line of lines) {
+                    if (!line.trim()) continue;
+                    var evt;
+                    try { evt = JSON.parse(line); } catch { continue; }
+
+                    if (evt.session_id && !sessionId) {
+                        sessionId = evt.session_id;
+                        conv.claude_session_id = sessionId;
+                        saveDb();
+                    }
+
+                    // Debug: log all event types to understand WebSearch flow
+                    if (evt.type !== 'stream_event') {
+                        console.log('[Engine-evt]', evt.type, evt.subtype || '', evt.tool_use_id ? 'tool_id=' + evt.tool_use_id : '', typeof evt.content === 'string' ? evt.content.slice(0, 100) : '');
+                    }
+
+                    if (evt.type === 'stream_event' && evt.event) {
+                        var se = evt.event;
+                        // Forward text and thinking deltas
+                        if (se.type === 'content_block_delta') {
+                            if (se.delta && se.delta.type === 'text_delta') {
+                                assistantText += se.delta.text;
+                                pendingWorkText += se.delta.text;
+                                sendSSE({ type: 'content_block_delta', delta: { type: 'text_delta', text: se.delta.text } });
+                            } else if (se.delta && se.delta.type === 'thinking_delta') {
+                                thinkingText += se.delta.thinking;
+                                sendSSE({ type: 'content_block_delta', delta: { type: 'thinking_delta', thinking: se.delta.thinking } });
+                            }
+                        }
+                        // Track tool_use start from stream (don't send yet — wait for full input from assistant event)
+                        else if (se.type === 'content_block_start' && se.content_block && se.content_block.type === 'tool_use') {
+                            var tu = se.content_block;
+                            // Capture text that appeared before this tool call
+                            toolCalls.set(tu.id, { id: tu.id, name: tu.name, input: {}, status: 'running', textBefore: pendingWorkText.trim() });
+                            toolCallOrder.push(tu.id);
+                            pendingWorkText = '';
+                            // Don't send tool_use_start here — input is empty. Wait for 'assistant' event with full input.
+                        }
+                    }
+                    // Complete assistant message — has full tool input
+                    else if (evt.type === 'assistant' && evt.message && evt.message.content) {
+                        for (var block of evt.message.content) {
+                            if (block.type === 'tool_use') {
+                                var tc = toolCalls.get(block.id);
+                                if (tc) {
+                                    tc.input = block.input;
+                                } else {
+                                    // Tool not seen via content_block_start — register now with pending text
+                                    tc = { id: block.id, name: block.name, input: block.input, status: 'running', textBefore: pendingWorkText.trim() };
+                                    toolCalls.set(block.id, tc);
+                                    toolCallOrder.push(block.id);
+                                    pendingWorkText = '';
+                                }
+                                // WebSearch: emit status event instead of tool_use_start
+                                if (block.name === 'WebSearch' && !sentToolStarts.has(block.id)) {
+                                    sentToolStarts.add(block.id);
+                                    var searchQuery = (block.input && block.input.query) || 'the web';
+                                    sendSSE({ type: 'status', message: 'Searching: ' + searchQuery });
+                                    console.log('[WebSearch] Started, query:', searchQuery, 'id:', block.id);
+                                }
+                                // WebFetch: also emit status
+                                else if (block.name === 'WebFetch' && !sentToolStarts.has(block.id)) {
+                                    sentToolStarts.add(block.id);
+                                    var fetchUrl = (block.input && block.input.url) || '';
+                                    sendSSE({ type: 'status', message: 'Fetching: ' + fetchUrl });
+                                    console.log('[WebFetch] Started, url:', fetchUrl);
+                                }
+                                // Send tool_use_start with full input (only once per tool)
+                                else if (!sentToolStarts.has(block.id) && !HIDDEN_TOOLS.has(block.name)) {
+                                    sentToolStarts.add(block.id);
+                                    sendSSE({ type: 'tool_use_start', tool_use_id: block.id, tool_name: block.name, tool_input: block.input });
+                                    console.log('[Tool]', block.name, JSON.stringify(block.input || {}).slice(0, 120));
+                                }
+                            }
+                        }
+                    }
+                    // User message with tool_use_result (WebSearch results come through here)
+                    else if (evt.type === 'user' && evt.message && evt.message.content) {
+                        var userContent = evt.message.content;
+                        var contentArr = Array.isArray(userContent) ? userContent : [];
+                        for (var ci = 0; ci < contentArr.length; ci++) {
+                            var cb = contentArr[ci];
+                            if (cb.type === 'tool_result' && cb.tool_use_id) {
+                                var tc3 = toolCalls.get(cb.tool_use_id);
+                                var tn = tc3 ? tc3.name : '';
+                                // Extract text from tool_result content
+                                var trText = '';
+                                if (typeof cb.content === 'string') trText = cb.content;
+                                else if (Array.isArray(cb.content)) trText = cb.content.map(function(x) { return x.text || ''; }).join('');
+                                if (tc3) { tc3.status = cb.is_error ? 'error' : 'done'; tc3.result = trText; }
+                                // Record text offset after each tool completes — used to split work text vs final text
+                                lastToolDoneTextLen = assistantText.length;
+
+                                // WebSearch: parse result text and emit search_sources
+                                if (tn === 'WebSearch' && trText) {
+                                    console.log('[WebSearch] Result from user event:', trText.slice(0, 300));
+                                    try {
+                                        // Format: "Web search results for query: "..."\n\nLinks: [{...},...]\n\nContent:..."
+                                        var wsQuery = '';
+                                        var qMatch = trText.match(/query:\s*"([^"]+)"/);
+                                        if (qMatch) wsQuery = qMatch[1];
+                                        var wsSources = [];
+                                        var linksMatch = trText.match(/Links:\s*(\[[\s\S]*?\])\s*\n/);
+                                        if (linksMatch) {
+                                            try {
+                                                var links = JSON.parse(linksMatch[1]);
+                                                if (Array.isArray(links)) {
+                                                    wsSources = links.filter(function(l) { return l.url; }).map(function(l) { return { url: l.url, title: l.title || '' }; });
+                                                }
+                                            } catch (_) {}
+                                        }
+                                        if (wsSources.length > 0 && wsQuery) {
+                                            sendSSE({ type: 'search_sources', sources: wsSources, query: wsQuery });
+                                            searchLogs.push({ query: wsQuery, results: wsSources });
+                                            console.log('[WebSearch] Emitted', wsSources.length, 'sources for:', wsQuery);
+                                        }
+                                    } catch (_) {}
+                                }
+
+                                // Don't send tool_use_done for hidden tools
+                                if (!HIDDEN_TOOLS.has(tn)) {
+                                    ensureToolStartSent(cb.tool_use_id);
+                                    sendSSE({ type: 'tool_use_done', tool_use_id: cb.tool_use_id, content: trText.slice(0, 50000), is_error: cb.is_error || false });
+                                }
+                            }
+                        }
+                    }
+                    // Tool result (legacy path)
+                    else if (evt.type === 'tool') {
+                        var resultText = typeof evt.content === 'string' ? evt.content
+                            : Array.isArray(evt.content) ? evt.content.map(function(b) { return b.text || ''; }).join('') : '';
+                        var tc2 = toolCalls.get(evt.tool_use_id);
+                        var toolName = tc2 ? tc2.name : '';
+                        if (tc2) { tc2.status = evt.is_error ? 'error' : 'done'; tc2.result = resultText; }
+
+                        // WebSearch result (legacy tool path): parse text format
+                        if (toolName === 'WebSearch' && resultText) {
+                            try {
+                                var qm2 = resultText.match(/query:\s*"([^"]+)"/);
+                                var lm2 = resultText.match(/Links:\s*(\[[\s\S]*?\])\s*\n/);
+                                if (qm2 && lm2) {
+                                    var links2 = JSON.parse(lm2[1]);
+                                    var sources = links2.filter(function(l) { return l.url; }).map(function(l) { return { url: l.url, title: l.title || '' }; });
+                                    if (sources.length > 0) {
+                                        sendSSE({ type: 'search_sources', sources: sources, query: qm2[1] });
+                                    }
+                                }
+                            } catch (_) {}
+                        }
+
+                        // Deduplicate Write tool: only keep last version per file path
+                        if (toolName === 'Write' && tc2 && tc2.input && tc2.input.file_path) {
+                            var prevId = writtenFiles.get(tc2.input.file_path);
+                            if (prevId) {
+                                // Remove previous Write for same file from toolCalls
+                                toolCalls.delete(prevId);
+                            }
+                            writtenFiles.set(tc2.input.file_path, evt.tool_use_id);
+                        }
+
+                        // Don't send results for hidden/internal tools
+                        if (!HIDDEN_TOOLS.has(toolName)) {
+                            ensureToolStartSent(evt.tool_use_id);
+                            sendSSE({ type: 'tool_use_done', tool_use_id: evt.tool_use_id, content: resultText.slice(0, 50000), is_error: evt.is_error || false });
+                        }
+                    }
+                    // Final result
+                    else if (evt.type === 'result' && !assistantText && evt.result) {
+                        assistantText = typeof evt.result === 'string' ? evt.result : '';
+                    }
+                    // AskUserQuestion — engine needs user input via control_request
+                    else if (evt.type === 'control_request' && evt.request) {
+                        var req2 = evt.request;
+                        if (req2.subtype === 'can_use_tool' && req2.tool_name === 'AskUserQuestion') {
+                            console.log('[AskUser] control_request id=' + evt.request_id);
+                            // Stash the original input so /answer can merge user answers into updatedInput
+                            askUserPendingInputs.set(conversation_id, req2.input || {});
+                            sendSSE({
+                                type: 'ask_user',
+                                request_id: evt.request_id,
+                                tool_use_id: req2.tool_use_id,
+                                questions: (req2.input && req2.input.questions) || [],
+                            });
+                        } else {
+                            // Other permission requests — auto-accept in bypass mode
+                            var autoResponse = JSON.stringify({
+                                type: 'control_response',
+                                response: { subtype: 'success', request_id: evt.request_id, response: { toolUseID: req2.tool_use_id, behavior: 'allow', updatedInput: req2.input || {} } }
+                            }) + '\n';
+                            try { childRef.stdin.write(autoResponse); } catch (_) {}
+                        }
+                    }
+                    // Task/Agent progress events
+                    else if (evt.type === 'system' && (evt.subtype === 'task_started' || evt.subtype === 'task_progress' || evt.subtype === 'task_notification')) {
+                        sendSSE({ type: 'task_event', subtype: evt.subtype, task_id: evt.task_id, description: evt.description, status: evt.status, summary: evt.summary, usage: evt.usage, last_tool_name: evt.last_tool_name });
+                    }
+                    // Auto-compact boundary — engine compacted context mid-conversation
+                    else if (evt.type === 'system' && evt.subtype === 'compact_boundary') {
+                        var meta = evt.compact_metadata || {};
+                        console.log('[AutoCompact] Engine auto-compacted context, pre_tokens=' + (meta.pre_tokens || '?'));
+                        sendSSE({ type: 'compact_boundary', compact_metadata: meta });
+                        // Append a compact boundary marker — keep old messages for UI display
+                        db.messages.push({
+                            id: uuidv4(), conversation_id: conversation_id, role: 'system',
+                            content: JSON.stringify([{ type: 'text', text: 'Context auto-compacted by engine.' }]),
+                            created_at: new Date().toISOString(), is_compact_boundary: true,
+                        });
+                        saveDb();
+                    }
+                }
+            });
+
+            let stderrBuf = '';
+            child.stderr.on('data', function(c) { stderrBuf += c.toString('utf8'); });
+
+            await new Promise(function(resolve, reject) {
+                child.on('close', function(code) {
+                    activeChildren.delete(conversation_id);
+                    if (sysPromptFile) try { fs.unlinkSync(sysPromptFile); } catch (_) {}
+                    // Process remaining buffer
+                    if (buf.trim()) {
+                        try {
+                            var lastEvt = JSON.parse(buf);
+                            if (lastEvt.type === 'stream_event' && lastEvt.event && lastEvt.event.delta && lastEvt.event.delta.type === 'text_delta') {
+                                assistantText += lastEvt.event.delta.text;
+                                sendSSE({ type: 'content_block_delta', delta: { type: 'text_delta', text: lastEvt.event.delta.text } });
+                            } else if (!assistantText && lastEvt.result) {
+                                assistantText = typeof lastEvt.result === 'string' ? lastEvt.result : '';
+                            }
+                        } catch(x) {}
+                    }
+                    if (code !== 0) {
+                        console.error('[Engine] Exited with code', code, '| stderr:', stderrBuf.slice(0, 500));
+                        if (!assistantText) {
+                            reject(new Error(stderrBuf || 'Engine exit ' + code));
+                        } else {
+                            // Engine failed mid-response — show the error after partial text
+                            sendSSE({ type: 'content_block_delta', delta: { type: 'text_delta', text: '\n\n⚠️ Engine exited unexpectedly (code ' + code + '). The response may be incomplete.' } });
+                            resolve();
+                        }
+                    } else {
+                        resolve();
+                    }
+                });
+                child.on('error', function(err) { activeChildren.delete(conversation_id); reject(err); });
+            });
+
+            // ── 6. Save results ──
+            if (assistantText || thinkingText || toolCalls.size > 0) {
+                db.messages.push({
+                    id: uuidv4(), conversation_id, role: 'assistant',
+                    content: JSON.stringify([{ type: 'text', text: assistantText }]),
+                    created_at: new Date().toISOString(),
+                    thinking: thinkingText || undefined,
+                    toolCalls: toolCalls.size > 0 ? toolCallOrder.map(id => toolCalls.get(id)).filter(Boolean) : undefined,
+                    toolTextEndOffset: (toolCalls.size > 0 && lastToolDoneTextLen > 0) ? lastToolDoneTextLen : undefined,
+                    searchLogs: searchLogs.length > 0 ? searchLogs : undefined,
+                });
+                saveDb();
+                generateTitleAsync(conversation_id, message.slice(0, 300), assistantText.slice(0, 300), apiKey, baseUrl, conv.model, apiFormat);
+            }
+
+            // Send the text offset so frontend knows where work text ends and final text begins
+            if (toolCalls.size > 0 && lastToolDoneTextLen > 0) {
+                sendSSE({ type: 'tool_text_offset', offset: lastToolDoneTextLen });
+            }
+            // Clean up pending images for this conversation
+            pendingImageBlocks.delete(conversation_id);
+            sendSSE({ type: 'message_stop' });
+            endStream(conversation_id);
         } catch (err) {
             pendingImageBlocks.delete(conversation_id);
             console.error('[Chat] Error:', (err.message || '').slice(0, 300));
@@ -2411,7 +2591,6 @@ You have the following skills available. When a user's request matches a skill's
             endStream(conversation_id);
         }
     });
-
 
     return server;
 }

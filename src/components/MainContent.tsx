@@ -3,7 +3,7 @@ import { ChevronDown, FileText, ArrowUp, RotateCcw, Pencil, Copy, Check, Papercl
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { IconPlus, IconVoice, IconPencil } from './Icons';
 import ClaudeLogo from './ClaudeLogo';
-import { getConversation, sendMessage, createConversation, getUser, updateConversation, deleteMessagesFrom, deleteMessagesTail, uploadFile, deleteAttachment, compactConversation, answerUserQuestion, getUserUsage, getAttachmentUrl, getGenerationStatus, stopGeneration, getContextSize, getUserModels, getStreamStatus, reconnectStream, getProviderModels } from '../api';
+import { getConversation, sendMessage, createConversation, getUser, updateConversation, deleteMessagesFrom, deleteMessagesTail, uploadFile, deleteAttachment, compactConversation, answerUserQuestion, getUserUsage, getAttachmentUrl, getGenerationStatus, stopGeneration, getContextSize, getUserModels, getStreamStatus, reconnectStream, getProviderModels, getSkills, warmEngine } from '../api';
 import { addStreaming, removeStreaming, isStreaming } from '../streamingState';
 import MarkdownRenderer from './MarkdownRenderer';
 import ModelSelector, { SelectableModel } from './ModelSelector';
@@ -33,6 +33,36 @@ function formatChatError(err: string): string {
   }
   return 'Error: ' + err;
 }
+
+// Blue skill tag shown in chat messages (hover shows tooltip)
+const SkillTag: React.FC<{ slug: string; description?: string }> = ({ slug, description }) => {
+  const [hover, setHover] = useState(false);
+  return (
+    <span className="relative inline" onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
+      <span className={`text-[#4B9EFA] font-medium cursor-default transition-colors ${hover ? 'bg-[#4B9EFA]/10 rounded px-0.5 -mx-0.5' : ''}`}>
+        /{slug}
+      </span>
+      {hover && description && (
+        <div className="absolute left-0 top-full mt-2 w-[240px] p-3 bg-claude-input border border-claude-border rounded-xl shadow-lg z-[100] pointer-events-none">
+          <div className="text-[12px] text-claude-textSecondary leading-snug mb-1.5">{description.length > 150 ? description.slice(0, 150) + '...' : description}</div>
+          <div className="text-[11px] text-claude-textSecondary/60">Skill</div>
+        </div>
+      )}
+    </span>
+  );
+};
+
+// Overlay that mirrors textarea text: /skill-name in blue, rest in normal color
+const SkillInputOverlay: React.FC<{ text: string; className?: string; style?: React.CSSProperties }> = ({ text, className, style }) => {
+  const match = text.match(/^(\/[a-zA-Z0-9_-]+)([\s\S]*)$/);
+  if (!match) return null;
+  return (
+    <div className={className} style={{ ...style, pointerEvents: 'none', position: 'absolute', top: 0, left: 0, right: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }} aria-hidden>
+      <span className="text-[#4B9EFA]">{match[1]}</span>
+      <span className="text-claude-text">{match[2] || ''}</span>
+    </div>
+  );
+};
 
 const CompactingStatus = () => {
   const [progress, setProgress] = useState(0);
@@ -504,7 +534,22 @@ const MessageList = React.memo<MessageListProps>(({
                       }}
                       ref={(el) => { if (el) messageContentRefs.current.set(idx, el); }}
                     >
-                      {extractTextContent(msg.content)}
+                      {(() => {
+                        try {
+                          const text = extractTextContent(msg.content);
+                          if (!text) return '';
+                          const skillMatch = text.match(/^\/([a-zA-Z0-9_-]+)(\s|$)/);
+                          if (skillMatch) {
+                            const slug = skillMatch[1];
+                            const rest = text.slice(skillMatch[0].length);
+                            return <>
+                              <span className="text-[#4B9EFA] font-medium">/{slug}</span>
+                              {rest ? ' ' + rest : ''}
+                            </>;
+                          }
+                          return text;
+                        } catch { return extractTextContent(msg.content) || ''; }
+                      })()}
                       {!expandedMessages.has(idx) && (() => {
                         const el = messageContentRefs.current.get(idx);
                         return el && el.scrollHeight > 300;
@@ -897,11 +942,42 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig, onOpenDocument, onArtif
   // Model state
   const [modelCatalog, setModelCatalog] = useState<ModelCatalog | null>(null);
   const isSelfHostedMode = localStorage.getItem('user_mode') === 'selfhosted';
-  const fallbackCommonModels = useMemo<SelectableModel[]>(() => ([
-    { id: 'claude-opus-4-6', name: 'Opus 4.6', enabled: 1, description: 'Most capable for ambitious work' },
-    { id: 'claude-sonnet-4-6', name: 'Sonnet 4.6', enabled: 1, description: 'Most efficient for everyday tasks' },
-    { id: 'claude-haiku-4-5-20251001', name: 'Haiku 4.5', enabled: 1, description: 'Fastest for quick answers' },
-  ]), []);
+
+  // Self-hosted: read chat_models from localStorage synchronously to avoid flash of wrong models
+  const selfHostedModels = useMemo<SelectableModel[]>(() => {
+    if (!isSelfHostedMode) return [];
+    try {
+      const chatModels = JSON.parse(localStorage.getItem('chat_models') || '[]');
+      if (chatModels.length === 0) return [];
+      const tierDescMap: Record<string, string> = {
+        'opus': 'Most capable for ambitious work',
+        'sonnet': 'Most efficient for everyday tasks',
+        'haiku': 'Fastest for quick answers',
+      };
+      return chatModels.map((m: any) => ({
+        id: m.id,
+        name: m.name || m.id,
+        enabled: 1,
+        tier: m.tier || 'extra',
+        description: m.tier && tierDescMap[m.tier] ? tierDescMap[m.tier] : undefined,
+      }));
+    } catch { return []; }
+  }, [isSelfHostedMode]);
+
+  const fallbackCommonModels = useMemo<SelectableModel[]>(() => {
+    // Self-hosted: use user-configured models as fallback, not hardcoded Claude models
+    if (isSelfHostedMode && selfHostedModels.length > 0) {
+      const tierOrder = ['opus', 'sonnet', 'haiku'];
+      const common = tierOrder.map(t => selfHostedModels.find(m => m.tier === t)).filter(Boolean) as SelectableModel[];
+      return common.length > 0 ? common : selfHostedModels;
+    }
+    return [
+      { id: 'claude-opus-4-6', name: 'Opus 4.6', enabled: 1, description: 'Most capable for ambitious work' },
+      { id: 'claude-sonnet-4-6', name: 'Sonnet 4.6', enabled: 1, description: 'Most efficient for everyday tasks' },
+      { id: 'claude-haiku-4-5-20251001', name: 'Haiku 4.5', enabled: 1, description: 'Fastest for quick answers' },
+    ];
+  }, [isSelfHostedMode, selfHostedModels]);
+
   const displayCommonModels = modelCatalog?.common?.length ? modelCatalog.common : fallbackCommonModels;
   const selectorModels = useMemo<SelectableModel[]>(() => {
     const visible = [...displayCommonModels];
@@ -917,7 +993,14 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig, onOpenDocument, onArtif
     }
     return visible;
   }, [displayCommonModels, modelCatalog, isSelfHostedMode]);
-  const [currentModelString, setCurrentModelString] = useState(localStorage.getItem('default_model') || 'claude-sonnet-4-6');
+
+  // Initial model: for self-hosted, prefer first configured model over hardcoded claude-sonnet-4-6
+  const [currentModelString, setCurrentModelString] = useState(() => {
+    const saved = localStorage.getItem('default_model');
+    if (saved) return saved;
+    if (isSelfHostedMode && selfHostedModels.length > 0) return selfHostedModels[0].id;
+    return 'claude-sonnet-4-6';
+  });
   const [conversationTitle, setConversationTitle] = useState("");
 
   useEffect(() => {
@@ -1019,6 +1102,9 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig, onOpenDocument, onArtif
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [showPlusMenu, setShowPlusMenu] = useState(false);
+  const [showSkillsSubmenu, setShowSkillsSubmenu] = useState(false);
+  const [enabledSkills, setEnabledSkills] = useState<Array<{ id: string; name: string; description?: string }>>([]);
+  const [selectedSkill, setSelectedSkill] = useState<{ name: string; slug: string; description?: string } | null>(null);
   const plusMenuRef = useRef<HTMLDivElement>(null);
   const plusBtnRef = useRef<HTMLButtonElement>(null);
   const [compactStatus, setCompactStatus] = useState<{ state: 'idle' | 'compacting' | 'done' | 'error'; message?: string }>({ state: 'idle' });
@@ -1114,6 +1200,15 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig, onOpenDocument, onArtif
     return () => el.removeEventListener('wheel', handleWheel);
   }, []);
 
+  // Load enabled skills for the plus menu
+  useEffect(() => {
+    if (!showPlusMenu) { setShowSkillsSubmenu(false); return; }
+    getSkills().then((data: any) => {
+      const all = [...(data.examples || []), ...(data.my_skills || [])];
+      setEnabledSkills(all.filter((s: any) => s.enabled).map((s: any) => ({ id: s.id, name: s.name, description: s.description })));
+    }).catch(() => {});
+  }, [showPlusMenu]);
+
   // 点击外部关闭加号菜单
   useEffect(() => {
     if (!showPlusMenu) return;
@@ -1140,6 +1235,21 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig, onOpenDocument, onArtif
       setShowEntranceAnimation(true);
       setTimeout(() => setShowEntranceAnimation(false), 800);
       isAtBottomRef.current = true;
+
+      // Check for prefill input (from Create with Claude)
+      const prefillInput = sessionStorage.getItem('prefill_input');
+      if (prefillInput) {
+        sessionStorage.removeItem('prefill_input');
+        setTimeout(() => {
+          setInputText(prefillInput);
+          // Auto-resize textarea
+          const ta = document.querySelector('textarea');
+          if (ta) {
+            ta.style.height = 'auto';
+            ta.style.height = Math.min(ta.scrollHeight, 316) + 'px';
+          }
+        }, 200);
+      }
 
       // Check for artifact prompt (from Artifacts page)
       const artifactPrompt = sessionStorage.getItem('artifact_prompt');
@@ -1319,6 +1429,9 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig, onOpenDocument, onArtif
     setAskUserDialog(null);
     isCreatingRef.current = false;
     viewingIdRef.current = activeId || null;
+
+    // Pre-warm engine when user opens a conversation (init in background before they send)
+    if (activeId) warmEngine(activeId);
 
     if (activeId) {
       // Check if there's a live buffer for this conversation (e.g. streaming in background)
@@ -1735,6 +1848,8 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig, onOpenDocument, onArtif
 
   const handleSend = async (overrideText?: string) => {
     const effectiveText = (typeof overrideText === 'string') ? overrideText : inputText;
+    // Skill slug is already in the text (inserted when selected from menu)
+    setSelectedSkill(null);
     const hasFiles = pendingFiles.some(f => f.status === 'done');
     const hasErrorFiles = pendingFiles.some(f => f.status === 'error');
     if ((!effectiveText.trim() && !hasFiles) || loading) {
@@ -1823,6 +1938,7 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig, onOpenDocument, onArtif
 
         conversationId = newConv.id;
         console.log("New Conversation ID:", conversationId);
+        warmEngine(conversationId); // Pre-warm engine while user waits
 
         // Use React Router navigate so useParams stays in sync with the URL
         // isCreatingRef prevents the activeId effect from reloading during streaming
@@ -2878,30 +2994,110 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig, onOpenDocument, onArtif
             >
               <div className="flex-1 overflow-y-auto min-h-0">
                 <FileUploadPreview files={pendingFiles} onRemove={handleRemoveFile} />
-                <textarea
-                  ref={inputRef}
-                  className="w-full pl-5 pr-4 pt-5 pb-1 text-claude-text placeholder:text-claude-textSecondary text-[16px] outline-none resize-none overflow-hidden bg-transparent font-sans font-[350]"
-                  style={{ minHeight: '48px', borderRadius: `${tunerConfig?.inputRadius || 16}px ${tunerConfig?.inputRadius || 16}px 0 0` }}
-                  placeholder="How can I help you today?"
-                  value={inputText}
-                  onChange={(e) => {
-                    setInputText(e.target.value);
-                    e.target.style.height = 'auto';
-                    e.target.style.height = Math.min(e.target.scrollHeight, 300) + 'px';
-                    e.target.style.overflowY = e.target.scrollHeight > 300 ? 'auto' : 'hidden';
-                  }}
-                  onKeyDown={handleKeyDown}
-                  onPaste={handlePaste}
-                />
+                <div className="relative">
+                  <SkillInputOverlay
+                    text={inputText}
+                    className="pl-5 pr-4 pt-5 pb-1 text-[16px] font-sans font-[350] overflow-hidden"
+                    style={{ minHeight: '48px' }}
+                  />
+                  <textarea
+                    ref={inputRef}
+                    className={`w-full pl-5 pr-4 pt-5 pb-1 placeholder:text-claude-textSecondary text-[16px] outline-none resize-none overflow-hidden bg-transparent font-sans font-[350] ${inputText.match(/^\/[a-zA-Z0-9_-]+/) ? 'text-transparent caret-claude-text' : 'text-claude-text'}`}
+                    style={{ minHeight: '48px', borderRadius: `${tunerConfig?.inputRadius || 16}px ${tunerConfig?.inputRadius || 16}px 0 0` }}
+                    placeholder={selectedSkill ? `Describe what you want ${selectedSkill.name} to do...` : "How can I help you today?"}
+                    value={inputText}
+                    onChange={(e) => {
+                      setInputText(e.target.value);
+                      e.target.style.height = 'auto';
+                      e.target.style.height = Math.min(e.target.scrollHeight, 300) + 'px';
+                      e.target.style.overflowY = e.target.scrollHeight > 300 ? 'auto' : 'hidden';
+                    }}
+                    onKeyDown={(e) => {
+                      // Backspace deletes entire /skill-name as a unit
+                      if (e.key === 'Backspace' && selectedSkill) {
+                        const pos = (e.target as HTMLTextAreaElement).selectionStart;
+                        const skillPrefix = `/${selectedSkill.slug} `;
+                        if (pos > 0 && pos <= skillPrefix.length && inputText.startsWith(skillPrefix.slice(0, pos))) {
+                          e.preventDefault();
+                          setInputText(inputText.slice(skillPrefix.length));
+                          setSelectedSkill(null);
+                          return;
+                        }
+                      }
+                      handleKeyDown(e);
+                    }}
+                    onPaste={handlePaste}
+                  />
+                </div>
               </div>
               <div className="px-4 pb-3 pt-1 flex items-center justify-between flex-shrink-0">
-                <div>
+                <div className="relative flex items-center">
                   <button
-                    onClick={() => fileInputRef.current?.click()}
+                    onClick={() => setShowPlusMenu(prev => !prev)}
                     className="p-2 text-claude-textSecondary hover:text-claude-text hover:bg-claude-hover rounded-lg transition-colors"
                   >
                     <IconPlus size={20} />
                   </button>
+                  {showPlusMenu && (
+                    <div
+                      ref={plusMenuRef}
+                      className="absolute bottom-full left-0 mb-2 w-[220px] bg-claude-input border border-claude-border rounded-xl shadow-[0_4px_16px_rgba(0,0,0,0.12)] py-1.5 z-50"
+                    >
+                      <button
+                        onClick={() => { setShowPlusMenu(false); fileInputRef.current?.click(); }}
+                        className="w-full flex items-center gap-3 px-4 py-2.5 text-[13px] text-claude-text hover:bg-claude-hover transition-colors"
+                      >
+                        <Paperclip size={16} className="text-claude-textSecondary" />
+                        Add files or photos
+                      </button>
+                      <div className="relative">
+                        <button
+                          onMouseEnter={() => setShowSkillsSubmenu(true)}
+                          onClick={() => setShowSkillsSubmenu(prev => !prev)}
+                          className="w-full flex items-center justify-between px-4 py-2.5 text-[13px] text-claude-text hover:bg-claude-hover transition-colors"
+                        >
+                          <div className="flex items-center gap-3">
+                            <FileText size={16} className="text-claude-textSecondary" />
+                            Skills
+                          </div>
+                          <ChevronDown size={14} className="text-claude-textSecondary -rotate-90" />
+                        </button>
+                        {showSkillsSubmenu && (
+                          <div
+                            className="absolute left-full bottom-0 ml-1 w-[200px] bg-claude-input border border-claude-border rounded-xl shadow-[0_4px_16px_rgba(0,0,0,0.12)] py-1.5 z-50 max-h-[300px] overflow-y-auto"
+                            onMouseLeave={() => setShowSkillsSubmenu(false)}
+                          >
+                            {enabledSkills.length > 0 ? enabledSkills.map(skill => (
+                              <button
+                                key={skill.id}
+                                onClick={() => {
+                                  setShowPlusMenu(false); setShowSkillsSubmenu(false);
+                                  const slug = skill.name.toLowerCase().replace(/\s+/g, '-');
+                                  setSelectedSkill({ name: skill.name, slug, description: skill.description });
+                                  setInputText(prev => prev ? `/${slug} ${prev}` : `/${slug} `);
+                                  inputRef.current?.focus();
+                                }}
+                                className="w-full text-left px-4 py-2 text-[13px] text-claude-text hover:bg-claude-hover transition-colors truncate"
+                              >
+                                {skill.name}
+                              </button>
+                            )) : (
+                              <div className="px-4 py-2 text-[12px] text-claude-textSecondary italic">No skills enabled</div>
+                            )}
+                            <div className="border-t border-claude-border mt-1 pt-1">
+                              <button
+                                onClick={() => { setShowPlusMenu(false); window.location.hash = '#/customize'; }}
+                                className="w-full flex items-center gap-3 px-4 py-2 text-[13px] text-claude-textSecondary hover:bg-claude-hover transition-colors"
+                              >
+                                <FileText size={14} />
+                                Manage skills
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
                 <div className="flex items-center gap-3">
                   <ModelSelector
@@ -3007,19 +3203,38 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig, onOpenDocument, onArtif
                 onDrop={handleDrop}
               >
                 <FileUploadPreview files={pendingFiles} onRemove={handleRemoveFile} />
-                <textarea
-                  ref={inputRef}
-                  className="w-full px-4 pt-4 pb-0 text-claude-text placeholder:text-claude-textSecondary text-[16px] outline-none resize-none bg-transparent font-sans font-[350]"
-                  style={{ height: `${inputBarBaseHeight}px`, minHeight: '16px', boxSizing: 'border-box', overflowY: 'hidden' }}
-                  placeholder="How can I help you today?"
-                  value={inputText}
-                  onChange={(e) => {
-                    setInputText(e.target.value);
-                    adjustTextareaHeight();
-                  }}
-                  onKeyDown={handleKeyDown}
-                  onPaste={handlePaste}
-                />
+                <div className="relative">
+                  <SkillInputOverlay
+                    text={inputText}
+                    className="px-4 pt-4 pb-0 text-[16px] font-sans font-[350]"
+                    style={{ height: `${inputBarBaseHeight}px`, minHeight: '16px', boxSizing: 'border-box', overflow: 'hidden' }}
+                  />
+                  <textarea
+                    ref={inputRef}
+                    className={`w-full px-4 pt-4 pb-0 placeholder:text-claude-textSecondary text-[16px] outline-none resize-none bg-transparent font-sans font-[350] ${inputText.match(/^\/[a-zA-Z0-9_-]+/) ? 'text-transparent caret-claude-text' : 'text-claude-text'}`}
+                    style={{ height: `${inputBarBaseHeight}px`, minHeight: '16px', boxSizing: 'border-box', overflowY: 'hidden' }}
+                    placeholder={selectedSkill ? `Describe what you want ${selectedSkill.name} to do...` : "How can I help you today?"}
+                    value={inputText}
+                    onChange={(e) => {
+                      setInputText(e.target.value);
+                      adjustTextareaHeight();
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Backspace' && selectedSkill) {
+                        const pos = (e.target as HTMLTextAreaElement).selectionStart;
+                        const skillPrefix = `/${selectedSkill.slug} `;
+                        if (pos > 0 && pos <= skillPrefix.length && inputText.startsWith(skillPrefix.slice(0, pos))) {
+                          e.preventDefault();
+                          setInputText(inputText.slice(skillPrefix.length));
+                          setSelectedSkill(null);
+                          return;
+                        }
+                      }
+                      handleKeyDown(e);
+                    }}
+                    onPaste={handlePaste}
+                  />
+                </div>
                 <div className="px-4 pb-3 pt-1 flex items-center justify-between">
                   <div className="relative flex items-center">
                     <button
@@ -3041,9 +3256,79 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig, onOpenDocument, onArtif
                           }}
                           className="w-full flex items-center gap-3 px-4 py-2.5 text-[13px] text-claude-text hover:bg-claude-hover transition-colors"
                         >
-                          <Paperclip size={16} className="text-[#525252]" />
+                          <Paperclip size={16} className="text-claude-textSecondary" />
                           Add files or photos
                         </button>
+                        {/* Skills submenu */}
+                        <div className="relative">
+                          <button
+                            onMouseEnter={() => setShowSkillsSubmenu(true)}
+                            onClick={() => setShowSkillsSubmenu(prev => !prev)}
+                            className="w-full flex items-center justify-between px-4 py-2.5 text-[13px] text-claude-text hover:bg-claude-hover transition-colors"
+                          >
+                            <div className="flex items-center gap-3">
+                              <FileText size={16} className="text-claude-textSecondary" />
+                              Skills
+                            </div>
+                            <ChevronDown size={14} className="text-claude-textSecondary -rotate-90" />
+                          </button>
+                          {showSkillsSubmenu && enabledSkills.length > 0 && (
+                            <div
+                              className="absolute left-full bottom-0 ml-1 w-[200px] bg-claude-input border border-claude-border rounded-xl shadow-[0_4px_16px_rgba(0,0,0,0.12)] py-1.5 z-50 max-h-[300px] overflow-y-auto"
+                              onMouseLeave={() => setShowSkillsSubmenu(false)}
+                            >
+                              {enabledSkills.map(skill => (
+                                <button
+                                  key={skill.id}
+                                  onClick={() => {
+                                    setShowPlusMenu(false);
+                                    setShowSkillsSubmenu(false);
+                                    const slug = skill.name.toLowerCase().replace(/\s+/g, '-');
+                                    setSelectedSkill({ name: skill.name, slug, description: skill.description });
+                                    setInputText(prev => prev ? `/${slug} ${prev}` : `/${slug} `);
+                                    inputRef.current?.focus();
+                                  }}
+                                  className="w-full text-left px-4 py-2 text-[13px] text-claude-text hover:bg-claude-hover transition-colors truncate"
+                                >
+                                  {skill.name}
+                                </button>
+                              ))}
+                              <div className="border-t border-claude-border mt-1 pt-1">
+                                <button
+                                  onClick={() => {
+                                    setShowPlusMenu(false);
+                                    setShowSkillsSubmenu(false);
+                                    window.location.hash = '#/customize';
+                                  }}
+                                  className="w-full flex items-center gap-3 px-4 py-2 text-[13px] text-claude-textSecondary hover:bg-claude-hover transition-colors"
+                                >
+                                  <FileText size={14} />
+                                  Manage skills
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                          {showSkillsSubmenu && enabledSkills.length === 0 && (
+                            <div
+                              className="absolute left-full bottom-0 ml-1 w-[200px] bg-claude-input border border-claude-border rounded-xl shadow-[0_4px_16px_rgba(0,0,0,0.12)] py-1.5 z-50"
+                              onMouseLeave={() => setShowSkillsSubmenu(false)}
+                            >
+                              <div className="px-4 py-2 text-[12px] text-claude-textSecondary italic">No skills enabled</div>
+                              <div className="border-t border-claude-border mt-1 pt-1">
+                                <button
+                                  onClick={() => {
+                                    setShowPlusMenu(false);
+                                    window.location.hash = '#/customize';
+                                  }}
+                                  className="w-full flex items-center gap-3 px-4 py-2 text-[13px] text-claude-textSecondary hover:bg-claude-hover transition-colors"
+                                >
+                                  <FileText size={14} />
+                                  Manage skills
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
                         <button
                           onClick={() => {
                             setShowPlusMenu(false);
