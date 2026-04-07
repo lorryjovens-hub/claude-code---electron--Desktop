@@ -728,11 +728,11 @@ const MessageList = React.memo<MessageListProps>(({
                       <span className={`text-[14px] ${!allDone ? 'animate-shimmer-text' : 'text-claude-textSecondary'}`}>
                         {summary}
                       </span>
-                      <ChevronDown size={14} className={`transform transition-transform duration-200 ${(msg.isToolCallsExpanded ?? !allDone) ? 'rotate-180' : ''}`} />
+                      <ChevronDown size={14} className={`transform transition-transform duration-200 ${(msg.isToolCallsExpanded ?? (isCurrentlyStreaming || !allDone)) ? 'rotate-180' : ''}`} />
                     </div>
                     </div>
 
-                    {(msg.isToolCallsExpanded ?? !allDone) && (
+                    {(msg.isToolCallsExpanded ?? (isCurrentlyStreaming || !allDone)) && (
                       <div className="mt-2 ml-1 pl-4 border-l-2 border-claude-border space-y-2">
                         {visibleToolCalls.map((tc: any, tcIdx: number) => {
                           const inputStr = tc.input ? (typeof tc.input === 'string' ? tc.input : JSON.stringify(tc.input, null, 2)) : '';

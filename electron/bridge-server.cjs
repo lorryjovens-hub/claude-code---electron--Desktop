@@ -843,15 +843,23 @@ function initServer(mainWindow) {
     });
 
     server.get('/api/conversations', (req, res) => {
-        // Filter: only return non-project conversations (project convs accessed via /projects/:id/conversations)
         const projectId = req.query.project_id;
         let list;
         if (projectId) {
             list = db.conversations.filter(c => c.project_id === projectId);
         } else {
-            list = db.conversations.filter(c => !c.project_id);
+            // Return all conversations including project ones
+            list = db.conversations;
         }
-        list = [...list].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+        // Enrich with project name for sidebar display
+        list = [...list].sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+            .map(c => {
+                if (c.project_id) {
+                    const project = db.projects.find(p => p.id === c.project_id);
+                    return { ...c, project_name: project ? project.name : null };
+                }
+                return c;
+            });
         res.json(list);
     });
 
@@ -2220,7 +2228,7 @@ You have the following skills available. When a user's request matches a skill's
     function spawnPersistentEngine(convId, conv, config) {
         const { modelId, apiKey, baseUrl, apiFormat, sysPrompt } = config;
         evictOldestEngine();
-        const cliArgs = ['--preload', enginePreload, '--env-file=' + engineEnv, engineCli, '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--bare', '--include-partial-messages', '--permission-mode', 'bypassPermissions', '--model', modelId];
+        const cliArgs = ['--preload', enginePreload, '--env-file=' + engineEnv, engineCli, '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--permission-mode', 'bypassPermissions', '--model', modelId];
         if (conv.claude_session_id) cliArgs.push('--resume', conv.claude_session_id);
         if (sysPrompt) cliArgs.push('--append-system-prompt', sysPrompt);
         const envVars = Object.assign({}, process.env);

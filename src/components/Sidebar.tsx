@@ -596,6 +596,11 @@ const Sidebar = ({ isCollapsed, toggleSidebar, refreshTrigger, onNewChatClick, o
                     >
                       {chat.title || 'New Chat'}
                     </div>
+                    {chat.project_name && (
+                      <div className="text-[11px] text-claude-textSecondary truncate leading-tight mt-0.5 opacity-60">
+                        {chat.project_name}
+                      </div>
+                    )}
                   </div>
 
                   {/* Three Dots Button */}

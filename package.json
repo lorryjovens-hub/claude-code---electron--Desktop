@@ -1,7 +1,7 @@
 {
   "name": "claude-desktop",
   "private": true,
-  "version": "1.5.1",
+  "version": "1.5.2",
   "description": "Claude Desktop - AI assistant with native capabilities",
   "author": {
     "name": "pretend1111",
@@ -90,7 +90,7 @@
         "dmg",
         "zip"
       ],
-      "icon": "public/favicon.png",
+      "icon": "public/icon-mac.png",
       "category": "public.app-category.productivity"
     },
     "linux": {
