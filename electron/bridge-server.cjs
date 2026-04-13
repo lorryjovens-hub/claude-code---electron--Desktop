@@ -3413,7 +3413,7 @@ You have the following skills available. When a user's request matches a skill's
         const { modelId, apiKey, baseUrl, apiFormat, sysPrompt } = config;
         evictOldestEngine();
         const claudeDir = path.join(os.homedir(), '.claude');
-        const cliArgs = ['--preload', enginePreload, '--env-file=' + engineEnv, engineCli, '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--permission-mode', 'bypassPermissions', '--permission-prompt-tool-name', 'stdio', '--add-dir', claudeDir, '--model', modelId];
+        const cliArgs = ['--preload', enginePreload, '--env-file=' + engineEnv, engineCli, '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--permission-mode', 'bypassPermissions', '--permission-prompt-tool', 'stdio', '--add-dir', claudeDir, '--model', modelId];
         if (conv.claude_session_id) {
             cliArgs.push('--resume', conv.claude_session_id);
             // If a delete/edit/regenerate queued a rewind point, slice the resumed
@@ -3718,7 +3718,10 @@ You have the following skills available. When a user's request matches a skill's
                     sendSSE({ type: 'message_stop' });
                 } catch (err) {
                     console.error('[Research] Pipeline error:', err);
-                    sendSSE({ type: 'error', error: err.message || 'Research pipeline failed' });
+                    const userMsg = err.message && err.message.includes('invalid JSON')
+                        ? 'Research planning failed — the planner output was malformed. Please try again.'
+                        : (err.message || 'Research pipeline failed');
+                    sendSSE({ type: 'error', error: userMsg });
                     sendSSE({ type: 'message_stop' });
                 }
                 try { res.end(); } catch (_) {}

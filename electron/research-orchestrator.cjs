@@ -38,6 +38,11 @@ Given a research question, you must:
 4. Order sub-questions logically (foundational context first, specifics later)
 5. Generate a concise title for the final research report
 
+IMPORTANT:
+- Keep each sub-question to ONE concise sentence (max 30 words)
+- The title must be under 15 words
+- Use English for JSON keys and structure; sub-question text should match the language of the user's query
+
 Respond in strict JSON with this shape:
 {
   "title": "string",
@@ -237,20 +242,26 @@ function extractSubAgentResult(response) {
 async function runPlanner({ query, apiKey, baseUrl, model }) {
     const body = {
         model,
-        max_tokens: 2048,
+        max_tokens: 4096,
         system: PLANNING_SYSTEM_PROMPT,
         messages: [{ role: 'user', content: buildPlanningUserPrompt(query) }],
     };
     const response = await callAnthropic({ apiKey, baseUrl, body });
+    if (response.stop_reason === 'max_tokens') {
+        console.warn('[Research] Planner hit max_tokens — output was truncated');
+    }
     const textBlock = (response.content || []).find(b => b.type === 'text');
     if (!textBlock) throw new Error('Planner returned no text content');
     let parsed;
     try {
-        // Strip code fences defensively
-        const cleaned = textBlock.text.replace(/^```json\s*/i, '').replace(/^```\s*/, '').replace(/```\s*$/, '').trim();
+        let cleaned = textBlock.text.replace(/^```json\s*/i, '').replace(/^```\s*/, '').replace(/```\s*$/, '').trim();
+        // If JSON was truncated, attempt to repair by closing open arrays/objects
+        if (response.stop_reason === 'max_tokens') {
+            cleaned = repairTruncatedPlanJSON(cleaned);
+        }
         parsed = JSON.parse(cleaned);
     } catch (err) {
-        throw new Error(`Planner returned invalid JSON: ${err.message}\nRaw: ${textBlock.text.slice(0, 500)}`);
+        throw new Error(`Planner returned invalid JSON: ${err.message}\nRaw: ${textBlock.text.slice(0, 300)}`);
     }
     if (!Array.isArray(parsed.sub_questions) || parsed.sub_questions.length === 0) {
         throw new Error('Planner returned no sub_questions');
@@ -259,6 +270,46 @@ async function runPlanner({ query, apiKey, baseUrl, model }) {
         title: parsed.title || query,
         sub_questions: parsed.sub_questions.slice(0, MAX_SUB_QUESTIONS),
     };
+}
+
+// Attempt to recover a truncated planner JSON like {"title":"...","sub_questions":["q1","q2","q3 trunc
+function repairTruncatedPlanJSON(raw) {
+    // Already valid?
+    try { JSON.parse(raw); return raw; } catch (_) {}
+
+    // Find the last complete string in the sub_questions array
+    const sqIdx = raw.indexOf('"sub_questions"');
+    if (sqIdx === -1) throw new Error('No sub_questions key found');
+    const bracketIdx = raw.indexOf('[', sqIdx);
+    if (bracketIdx === -1) throw new Error('No array start found');
+
+    // Walk through and collect complete quoted strings
+    let pos = bracketIdx + 1;
+    const questions = [];
+    while (pos < raw.length) {
+        // Skip whitespace and commas
+        while (pos < raw.length && /[\s,]/.test(raw[pos])) pos++;
+        if (pos >= raw.length || raw[pos] === ']') break;
+        if (raw[pos] !== '"') break;
+        // Find end of this string (handle escaped quotes)
+        let end = pos + 1;
+        while (end < raw.length) {
+            if (raw[end] === '\\') { end += 2; continue; }
+            if (raw[end] === '"') break;
+            end++;
+        }
+        if (end >= raw.length) break; // string was truncated — skip it
+        questions.push(raw.slice(pos + 1, end));
+        pos = end + 1;
+    }
+
+    if (questions.length === 0) throw new Error('No complete sub_questions found in truncated output');
+
+    // Extract title
+    const titleMatch = raw.match(/"title"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+    const title = titleMatch ? titleMatch[1] : '';
+
+    return JSON.stringify({ title, sub_questions: questions });
 }
 
 // ---------- Phase 2: Sub-researchers ----------
