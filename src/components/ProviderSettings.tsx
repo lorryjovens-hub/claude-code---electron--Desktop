@@ -393,7 +393,7 @@ const ProviderSettings: React.FC = () => {
     if (uid) {
       const src = allAvailableModels.find(m => modelUid(m) === uid);
       if (src) {
-        const thinkingId = detectThinkingId(modelId);
+        const thinkingId = detectThinkingId(src.id);
         updated = [...updated, { ...src, tier, thinkingId }];
       }
     }
