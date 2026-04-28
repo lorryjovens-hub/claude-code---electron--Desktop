@@ -4,8 +4,8 @@
   "version": "1.7.0",
   "description": "Claude Desktop - AI assistant with native capabilities",
   "author": {
-    "name": "pretend1111",
-    "email": "pretend1111@users.noreply.github.com"
+    "name": "lorry",
+    "email": "2574566046@qq.com"
   },
   "type": "module",
   "main": "electron/main.cjs",
@@ -85,8 +85,8 @@
     ],
     "publish": {
       "provider": "github",
-      "owner": "pretend1111",
-      "repo": "claude-desktop-app"
+      "owner": "lorryjovens-hub",
+      "repo": "Claude-GUI--Electron"
     },
     "win": {
       "target": [

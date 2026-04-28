@@ -591,7 +591,6 @@ const Sidebar = ({ isCollapsed, toggleSidebar, refreshTrigger, onNewChatClick, o
         `}
         style={{
           width: sidebarWidth,
-          backgroundColor: isCoworkExactLayout ? '#f9f9f9' : undefined,
           borderColor: isCoworkExactLayout ? '#e9e5de' : undefined,
         }}
       >
@@ -1172,7 +1171,7 @@ const Sidebar = ({ isCollapsed, toggleSidebar, refreshTrigger, onNewChatClick, o
             <h3 className="text-[16px] font-semibold text-claude-text mb-2">售后支持</h3>
             <p className="text-[14px] text-claude-textSecondary mb-3">售后 QQ 群号：</p>
             <div className="px-4 py-3 mb-6 rounded-xl bg-claude-btn-hover text-[20px] font-semibold tracking-wide text-claude-text text-center select-all">
-              1083610043
+              629466903
             </div>
             <div className="flex justify-end">
               <button

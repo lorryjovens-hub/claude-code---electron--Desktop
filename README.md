@@ -9,9 +9,9 @@
 </p>
 
 <p align="center">
-  <a href="../../releases"><img src="https://img.shields.io/github/v/release/pretend1111/claude-desktop-app?style=flat-square" alt="Release" /></a>
-  <a href="../../stargazers"><img src="https://img.shields.io/github/stars/pretend1111/claude-desktop-app?style=flat-square" alt="Stars" /></a>
-  <a href="../../releases"><img src="https://img.shields.io/github/downloads/pretend1111/claude-desktop-app/total?style=flat-square" alt="Downloads" /></a>
+  <a href="../../releases"><img src="https://img.shields.io/github/v/release/lorryjovens-hub/Claude-GUI--Electron?style=flat-square" alt="Release" /></a>
+  <a href="../../stargazers"><img src="https://img.shields.io/github/stars/lorryjovens-hub/Claude-GUI--Electron?style=flat-square" alt="Stars" /></a>
+  <a href="../../releases"><img src="https://img.shields.io/github/downloads/lorryjovens-hub/Claude-GUI--Electron/total?style=flat-square" alt="Downloads" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Non--Commercial-blue?style=flat-square" alt="License" /></a>
 </p>
 
@@ -123,8 +123,8 @@ claude.ai 网页版体验顶级，但国内用户几乎用不了：注册要纯�
 ## 从源码构建
 
 ```bash
-git clone https://github.com/pretend1111/claude-desktop-app.git
-cd claude-desktop-app
+git clone https://github.com/lorryjovens-hub/Claude-GUI--Electron.git
+cd Claude-GUI--Electron
 
 # 装依赖
 npm install
