@@ -5,22 +5,10 @@ const {
   resolveRequestedModelForMode,
 } = require('./chat-config.cjs');
 
-test('falls back to Claude when clawparrot receives a non-Claude model', () => {
-  const result = resolveRequestedModelForMode({
-    modelId: 'gpt-5.4',
-    userMode: 'clawparrot',
-    hasProvider: true,
-  });
-
-  assert.equal(result.modelId, 'claude-sonnet-4-6');
-  assert.equal(result.fallbackApplied, true);
-  assert.equal(result.error, null);
-});
-
-test('keeps Claude models unchanged in clawparrot mode', () => {
+test('keeps Claude models unchanged', () => {
   const result = resolveRequestedModelForMode({
     modelId: 'claude-sonnet-4-6',
-    userMode: 'clawparrot',
+    userMode: 'selfhosted',
     hasProvider: false,
   });
 
@@ -29,7 +17,7 @@ test('keeps Claude models unchanged in clawparrot mode', () => {
   assert.equal(result.error, null);
 });
 
-test('fails fast when selfhosted mode lacks a provider for a non-Claude model', () => {
+test('fails fast when no provider for a non-Claude model', () => {
   const result = resolveRequestedModelForMode({
     modelId: 'gemini-3.1-pro-preview',
     userMode: 'selfhosted',
@@ -38,5 +26,17 @@ test('fails fast when selfhosted mode lacks a provider for a non-Claude model', 
 
   assert.equal(result.modelId, 'gemini-3.1-pro-preview');
   assert.equal(result.fallbackApplied, false);
-  assert.match(result.error, /No enabled self-hosted provider/i);
+  assert.match(result.error, /No enabled provider/i);
+});
+
+test('allows non-Claude models when provider is available', () => {
+  const result = resolveRequestedModelForMode({
+    modelId: 'gpt-4o',
+    userMode: 'selfhosted',
+    hasProvider: true,
+  });
+
+  assert.equal(result.modelId, 'gpt-4o');
+  assert.equal(result.fallbackApplied, false);
+  assert.equal(result.error, null);
 });

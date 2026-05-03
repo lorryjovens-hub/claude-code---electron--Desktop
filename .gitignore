@@ -5,6 +5,7 @@ node_modules/
 dist/
 dist-ssr/
 release/
+dist-release/
 
 # Installer artifacts
 *.exe

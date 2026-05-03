@@ -1,243 +1,257 @@
-# Claude Desktop App
-
-**把 Claude Code 的开源引擎套上 claude.ai 的前端——一个能接任意 API 的桌面版 Claude。**
-
-手头有 Claude 中转站 API？想像 claude.ai 网页版那样跟 Claude 聊天，不想折腾纯净外卡 / 外号 / 住宅 IP？这个项目就是为你准备的。
+# 🦜 Claude Desktop — 自由、强大的 AI 桌面客户端
 
 <p align="center">
-  <img src="public/favicon.png" alt="Claude Desktop App" width="100" />
+  <img src="public/favicon.png" width="120" alt="Claude Desktop Logo">
 </p>
 
 <p align="center">
-  <a href="../../releases"><img src="https://img.shields.io/github/v/release/lorryjovens-hub/Claude-GUI--Electron?style=flat-square" alt="Release" /></a>
-  <a href="../../stargazers"><img src="https://img.shields.io/github/stars/lorryjovens-hub/Claude-GUI--Electron?style=flat-square" alt="Stars" /></a>
-  <a href="../../releases"><img src="https://img.shields.io/github/downloads/lorryjovens-hub/Claude-GUI--Electron/total?style=flat-square" alt="Downloads" /></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Non--Commercial-blue?style=flat-square" alt="License" /></a>
+  <strong>一个基于 Electron + React 构建的跨平台 AI 桌面客户端，支持 Claude、GPT、GLM、Gemini 等主流大模型</strong>
 </p>
 
-## 为什么做这个
+<p align="center">
+  <a href="https://github.com/lorryjovens-hub/claude-code---electron--Desktop/releases/latest">
+    <img src="https://img.shields.io/github/v/release/lorryjovens-hub/claude-code---electron--Desktop?style=for-the-badge&logo=github&labelColor=1a1a2e&color=387ee0" alt="Latest Release">
+  </a>
+  <a href="https://github.com/lorryjovens-hub/claude-code---electron--Desktop/releases">
+    <img src="https://img.shields.io/github/downloads/lorryjovens-hub/claude-code---electron--Desktop/total?style=for-the-badge&logo=github&labelColor=1a1a2e&color=4B9C68" alt="Downloads">
+  </a>
+  <a href="https://github.com/lorryjovens-hub/claude-code---electron--Desktop/blob/main/LICENSE">
+    <img src="https://img.shields.io/github/license/lorryjovens-hub/claude-code---electron--Desktop?style=for-the-badge&logo=github&labelColor=1a1a2e&color=D97757" alt="License">
+  </a>
+  <a href="https://github.com/lorryjovens-hub/claude-code---electron--Desktop/actions">
+    <img src="https://img.shields.io/github/actions/workflow/status/lorryjovens-hub/claude-code---electron--Desktop/build.yml?style=for-the-badge&logo=githubactions&labelColor=1a1a2e&color=7C3AED" alt="Build Status">
+  </a>
+</p>
 
-Claude Code 本身强得离谱，但只能在命令行里当"打工人"用——它的系统提示词是为编程任务写的，不适合当成日常对话助手。
+<p align="center">
+  <strong>🌐 Windows · macOS · Linux — 全平台支持</strong>
+</p>
 
-claude.ai 网页版体验顶级，但国内用户几乎用不了：注册要纯净国外信用卡、纯净国外手机号、住宅 IP，缺一个就封号。
+---
 
-所以大部分国内程序员的状况是：手里有 Claude 中转站 API → 只能在 Claude Code CLI 里编程用 → 想聊天只能退回 Gemini / GPT → 体验差 Claude 一截。
+## ✨ 为什么需要这个项目？
 
-**这个项目把 Claude Code 的开源引擎套上了 claude.ai 几乎一模一样的前端**。结果就是：
-- 拿你手里的中转站 API，像 claude.ai 一样跟 Claude 聊天
-- 同时拥有 Claude Code 原生的全部 agent 能力（读写文件、跑命令、上下文管理、网页搜索、Skills、Projects 等）
-- 不要外卡、不要外号、不要住宅 IP、不怕封号
+由于 Claude 官方的地区封锁和实名制政策，大多数中国用户无法正常使用官方客户端。本项目应运而生——**让你无需翻墙、无需实名，即可享受完整的 Claude 桌面体验**。
 
-## 亮点
+不仅如此，我们还聚合了多个主流 AI 模型服务商，一个客户端即可调用 Claude、GPT、GLM、Gemini、DeepSeek 等多种模型。
 
-- 🎨 **界面 1:1 还原 claude.ai**——深色模式、流式输出、thinking 块折叠、工具卡片、Artifacts 面板、Projects 知识库，基本体验跟官方完全对齐
-- 🔌 **任意模型接入**——内置 Anthropic ↔ OpenAI 格式双向代理，能接 Claude 中转站、Qwen、DeepSeek、GLM、GPT、Gemini，只要对方兼容 OpenAI 或 Anthropic 格式
-- 🛠️ **完整 agent 能力**——读写文件、执行命令、网页搜索、多轮工具调用、上下文压缩，全套 Claude Code 原生工具
-- 🎯 **两种使用模式**
-  - **自部署模式**：填你自己的 API Key 和 Base URL，完全本地使用，零服务器依赖
-  - **Clawparrot 模式**：不想折腾就注册 [clawparrot.com](https://clawparrot.com) 账号，按量付费直接用
-- 🧠 **Claude 原生对话风格**——保留了 claude.ai 的说话节奏和深度，不是 Claude Code 的"干练打工人"腔调
-- 🔄 **自动更新**——新版本推出后 app 自动拉取，无需手动重装
+## 🚀 核心特性
 
-## 演示
+### 🎨 极致体验
+- **原生级 UI 设计** — 精美的动画、流畅的交互、优雅的排版
+- **多标签对话** — 同时开启多个对话，高效切换
+- **代码高亮** — 内置语法高亮，支持 Mermaid 图表渲染
+- **数学公式** — 完美支持 LaTeX 数学公式显示
+- **文件上传** — 支持图片、文档、代码文件上传分析
+- **GitHub 集成** — 直接引用 GitHub 仓库代码进行分析
 
-丢一句 "写一个中国象棋游戏，玩家和 AI 对战，AI 三个难度等级"，模型会自己：
+### 🤖 多模型聚合
+- **Claude 全系列** — Opus、Sonnet、Haiku 等最新模型
+- **OpenAI** — GPT-4o、GPT-4o-mini、o3-mini
+- **Google** — Gemini 2.5 Pro、Gemini 2.5 Flash
+- **智谱 GLM** — GLM-5 Plus、GLM-4 Plus
+- **DeepSeek** — DeepSeek V3、DeepSeek R1
+- **MiniMax** — MiniMax M1
+- **通义千问** — Qwen 系列模型
+- **SiliconFlow** — 聚合多模型服务
 
-1. 规划任务 → 拆分成几个文件
-2. 用 Write 工具从零创建 `index.html`
-3. 用 Edit 工具实现 AI 评估函数、alpha-beta 剪枝、走子规则、UI 交互
-4. 全程流式展示每一步操作
+### 💰 自建中转站
+- **内置 OneAPI 服务** — 一键部署多模型聚合网关
+- **用户管理系统** — 支持自助注册、分组定价
+- **计费与充值** — 完善的额度管理、兑换码系统
+- **多渠道路由** — 智能模型匹配，自动选择最优服务商
 
-跑完就是一个能直接在浏览器打开玩的完整象棋游戏。所有代码由模型自主生成、自主写入、自主验证。
+### 🔧 开发者友好
+- **Claude Code SDK 集成** — 支持终端内直接调用 AI 编程助手
+- **自定义系统提示** — 可配置专属系统提示词
+- **API 兼容** — 完全兼容 OpenAI / Anthropic API 格式
+- **开源可审计** — 所有代码公开透明
 
-## 功能特性
+## 📥 下载安装
 
-### 对话 (Chat) ✅
-- Markdown 完整渲染（代码高亮、KaTeX 数学公式、Mermaid 图表）
-- 流式输出 + thinking 块折叠
-- 图片附件（缩略图 + lightbox 查看）
-- 多种文件格式上传（zip、pdf、docx 等）
-- GitHub 仓库一键导入对话
-- 消息编辑 / 重新生成 / 上下文回退（基于 Claude Code 原生 `--resume-session-at`）
-- 左下角实时显示额度使用情况
-- 跨模式切换保护（切换模式时对现有对话的模型自动检测并提示）
+### Windows
+```powershell
+# 方法 1：直接下载安装包
+# 前往 Releases 页面下载 Claude Desktop Setup x.x.x.exe
 
-### 工具调用
-- **Read / Write / Edit / MultiEdit**——文件读写与多处编辑
-- **Bash**——执行 shell 命令
-- **Glob / Grep**——代码库搜索
-- **WebSearch / WebFetch**——网页搜索和抓取
-- **Agent**——派生子任务并行处理（Deep Research 的基础）
-- **Skills**——调用自定义指令集
+# 方法 2：使用 winget（即将支持）
+winget install lorryjovens-hub.ClaudeDesktop
+```
 
-### Skills 系统
-- 输入框 `+` 菜单选 Skills → `/skill-name` 以蓝色 tag 出现在消息里
-- 模型通过 Skill 工具读取指令集内容（UI 里可见）
-- 内置 **skill-creator** 用于创建自定义 Skill
-- Skill 存在 `~/.claude/skills/` 目录，引擎自动加载
+### macOS
+```bash
+# 方法 1：下载 DMG 安装包
+# 前往 Releases 页面下载 Claude Desktop x.x.x.dmg
 
-### Projects（项目知识库）
-- 上传参考文档（代码、文档、PDF）作为项目知识库
-- 跨对话共享知识
-- 文件按需通过 Read 工具读取，不会塞爆上下文
-- 每个项目可设独立的 instructions 注入到对话
+# 方法 2：使用 Homebrew（即将支持）
+brew install --cask claude-desktop
+```
 
-### Deep Research 模式
-- 针对复杂问题展开深度调研
-- 主 agent 规划子问题 → 派生多个 sub-agent 并行搜索 → 汇总成带引用的报告
-- 启用方式：输入框左下角切换
+### Linux
+```bash
+# AppImage
+chmod +x Claude\ Desktop-x.x.x.AppImage
+./Claude\ Desktop-x.x.x.AppImage
 
-### Artifacts（可视化产出）
-- 模型生成的 HTML / JSX 直接在右侧面板实时预览
-- 支持双面板对比、编辑、重新生成
-- 在 Artifacts 页面浏览所有产出，带灵感画廊
+# Debian/Ubuntu
+sudo dpkg -i claude-desktop_x.x.x_amd64.deb
+```
 
-### 自动更新
-- Electron 内置 `electron-updater`，启动 15 秒后首次检查，之后每 10 分钟检查一次
-- 新版可用时通知用户，用户点击 Relaunch 即完成升级
-- 无需重装 app
+## 🛠️ 快速开始
 
-## 快速开始
+### 方式一：使用内置 API（推荐新手）
 
-### 下载安装
+1. **下载并安装客户端**
+2. **打开应用**，进入设置 → 模型配置
+3. **添加模型渠道**，填入你的 API Key（支持 SiliconFlow、智谱、DeepSeek 等）
+4. **开始对话** — 享受 AI 带来的效率提升！
 
-从 [Releases 页面](../../releases/latest) 下载对应平台的安装包：
-
-| 平台 | 下载 |
-|----------|----------|
-| Windows | `.exe` |
-| macOS (Apple Silicon) | `.dmg` 或 `.zip` |
-| Linux | `.AppImage` 或 `.deb` |
-
-### 首次使用
-
-1. 安装并启动 app
-2. Onboarding 页面选择使用模式：
-   - **自部署**：用你自己的 API Key（中转站 / 官方 / 任意兼容 OpenAI 格式的模型）
-   - **Clawparrot**：用我们托管的服务，需要先在 [clawparrot.com](https://clawparrot.com) 注册
-3. 自部署用户：进入 **Settings → Models** 添加 Provider，填入 Base URL 和 API Key，选择模型
-4. Clawparrot 用户：登录 clawparrot.com 账号即可使用
-
-两种模式都进主界面后，就可以开始聊天。
-
-## 从源码构建
+### 方式二：自建 OneAPI 中转站（推荐高级用户）
 
 ```bash
-git clone https://github.com/lorryjovens-hub/Claude-GUI--Electron.git
-cd Claude-GUI--Electron
+# 1. 克隆 OneAPI 项目
+git clone https://github.com/songquanpeng/one-api.git
+cd one-api
 
-# 装依赖
+# 2. 使用 Docker Compose 启动
+docker compose up -d
+
+# 3. 访问管理面板
+# http://localhost:3002
+# 默认账号：root / 123456
+
+# 4. 配置模型渠道，添加你的 API Key
+
+# 5. 在 Claude Desktop 中配置
+# 设置 → 模型 → 添加自部署渠道
+# Base URL: http://127.0.0.1:3002/v1
+# API Key: 你在 OneAPI 中创建的 Token
+```
+
+## 📸 界面预览
+
+> 精美的界面设计，流畅的交互动画，带来原生级的使用体验
+
+*(截图待添加)*
+
+## 🔧 开发指南
+
+### 环境要求
+- **Node.js** >= 20
+- **npm** >= 10
+- **Git**
+
+### 本地开发
+
+```bash
+# 1. 克隆仓库
+git clone https://github.com/lorryjovens-hub/claude-code---electron--Desktop.git
+cd claude-code---electron--Desktop
+
+# 2. 安装依赖
 npm install
 
-# 运行
-npx vite build
-npx electron .
+# 3. 启动开发模式
+npm run electron:dev
+
+# 4. 构建生产版本
+npm run electron:build:win    # Windows
+npm run electron:build:mac    # macOS
+npm run electron:build:linux  # Linux
 ```
 
-**依赖**：[Node.js 20+](https://nodejs.org)、[Bun](https://bun.sh)（Windows 上 Claude Code 引擎还需要 [Git Bash](https://git-scm.com/downloads)）
-
-### 开发模式
-
-- 改前端代码后需要重新 `npx vite build` + 重启 Electron
-- 改 `electron/bridge-server.cjs` 直接重启 Electron 即可
-- 改 `engine/src/` 源码不用 rebuild，下次 spawn 引擎时自动生效
-
-## 架构
+### 项目结构
 
 ```
-┌─────────────────────────────────────────────────┐
-│ Electron 主进程 (main.cjs)                       │
-│ ├── 窗口管理、IPC                                 │
-│ └── 自动更新（electron-updater）                  │
-└────────────────────┬────────────────────────────┘
-                     │
-     ┌───────────────┴──────────────────┐
-     │                                  │
-┌────▼──────────────┐      ┌────────────▼──────────┐
-│ React 前端 (Vite)  │◄────►│ Bridge Server         │
-│                   │ HTTP │ (Express, :30080)     │
-│ • 对话界面         │      │                       │
-│ • Skills / Projects│      │ • 对话 / 项目 CRUD      │
-│ • Artifacts        │      │ • Chat → spawn 引擎    │
-│ • Settings         │      │ • OpenAI ↔ Anthropic  │
-│                   │      │   双向格式代理          │
-└───────────────────┘      │ • 文件上传、图片服务    │
-                           └──────────┬────────────┘
-                                      │ stdin/stdout
-                                      │ (stream-json)
-                           ┌──────────▼────────────┐
-                           │ Claude Code 引擎        │
-                           │ (engine/, Bun 运行)     │
-                           │                       │
-                           │ • 19+ 内置工具         │
-                           │ • Session 持久化        │
-                           │ • Skill 加载            │
-                           │ • 上下文管理            │
-                           └──────────┬────────────┘
-                                      │ HTTPS
-                                      ▼
-                                   上游 API
-                          (Claude / Qwen / GPT ...)
+├── dist/                 # Vite 构建产物
+├── electron/             # Electron 主进程
+│   ├── main.cjs          # 主进程入口
+│   ├── bridge-server.cjs # API 桥接服务
+│   └── chat-config.cjs   # 模型路由配置
+├── src/                  # React 渲染进程
+│   ├── components/       # UI 组件
+│   ├── api.ts            # API 接口
+│   └── App.tsx           # 应用入口
+├── engine/               # Claude Code SDK 引擎
+├── public/               # 静态资源
+└── release/              # 打包输出目录
 ```
 
-## 配置
+## 🏗️ 技术栈
 
-### 自部署模式的 Providers
+| 层级 | 技术 |
+|------|------|
+| **桌面框架** | Electron 41 |
+| **前端框架** | React 19 + TypeScript |
+| **构建工具** | Vite 6 |
+| **样式方案** | Tailwind CSS 3 |
+| **路由** | React Router 6 |
+| **Markdown** | react-markdown + rehype-katex + remark-gfm |
+| **代码高亮** | highlight.js + react-syntax-highlighter |
+| **图表** | Mermaid + Recharts |
+| **动画** | GSAP + Lottie |
+| **打包工具** | electron-builder |
+| **CI/CD** | GitHub Actions |
 
-在 **Settings → Models** 中添加 Provider。常见配置：
+## 📋 支持的模型列表
 
-| Provider | Base URL | 格式 |
-|----------|----------|--------|
-| Claude 中转站（Anthropic 格式） | 中转站提供的 URL | Anthropic |
-| Qwen（阿里云） | `https://dashscope.aliyuncs.com/compatible-mode` | OpenAI |
-| DeepSeek | `https://api.deepseek.com` | OpenAI |
-| SiliconFlow | `https://api.siliconflow.cn` | OpenAI |
-| GLM（智谱） | `https://open.bigmodel.cn/api/paas/v4` | OpenAI |
-| OpenAI | `https://api.openai.com` | OpenAI |
-| Anthropic 官方 | `https://api.anthropic.com` | Anthropic |
+| 服务商 | 模型 | 格式 | 特色功能 |
+|--------|------|------|----------|
+| Anthropic | Claude Opus 4.6 | Anthropic | 联网搜索 |
+| Anthropic | Claude Sonnet 4.6 | Anthropic | 联网搜索 |
+| Anthropic | Claude Haiku 4.5 | Anthropic | 联网搜索 |
+| OpenAI | GPT-4o | OpenAI | - |
+| OpenAI | GPT-4o-mini | OpenAI | - |
+| OpenAI | o3-mini | OpenAI | - |
+| Google | Gemini 2.5 Pro | OpenAI | - |
+| Google | Gemini 2.5 Flash | OpenAI | - |
+| 智谱 | GLM-5 Plus | OpenAI | 联网搜索 |
+| 智谱 | GLM-4 Plus | OpenAI | 联网搜索 |
+| DeepSeek | DeepSeek V3 | OpenAI | - |
+| DeepSeek | DeepSeek R1 | OpenAI | - |
+| MiniMax | MiniMax M1 | OpenAI | - |
+| 通义千问 | Qwen 系列 | OpenAI | 联网搜索 |
 
-任何兼容 OpenAI 或 Anthropic 格式的 provider 都能接。
+## 🤝 贡献指南
 
-### Skills
+我们欢迎所有形式的贡献！
 
-Skills 存在 `~/.claude/skills/`，每个 skill 一个目录 + 一个 `SKILL.md`：
+1. Fork 本仓库
+2. 创建你的特性分支 (`git checkout -b feature/AmazingFeature`)
+3. 提交你的改动 (`git commit -m 'feat: add some AmazingFeature'`)
+4. 推送到分支 (`git push origin feature/AmazingFeature`)
+5. 开启一个 Pull Request
 
-```
-~/.claude/skills/
-├── skill-creator/
-│   └── SKILL.md
-├── code-review/
-│   └── SKILL.md
-└── your-custom-skill/
-    └── SKILL.md
-```
+## 📝 更新日志
 
-通过 app 内的 `/skill-creator` 创建，或手动放文件都行。
+### v1.7.0 (2025-05-03)
+- 🎉 完全移除第三方品牌依赖，全面自主化
+- 🚀 支持 Windows、macOS、Linux 三平台
+- 🤖 新增 SiliconFlow、MiniMax、Gemini 等模型支持
+- 💰 内置 OneAPI 中转站完整功能
+- 🎨 全新设计的 UI 界面
+- 🔧 优化模型路由和错误处理
 
-## 技术栈
+*(完整更新日志见 [Releases](https://github.com/lorryjovens-hub/claude-code---electron--Desktop/releases))*
 
-| 层 | 技术 |
-|-------|-----------|
-| 前端 | React 19、TypeScript、TailwindCSS |
-| 构建 | Vite 6 |
-| 桌面 | Electron |
-| 引擎 | Claude Code（TypeScript，Bun 运行） |
-| 格式代理 | Node.js HTTP server |
-| Markdown | react-markdown、highlight.js、KaTeX、Mermaid |
-| 更新分发 | electron-builder + electron-updater |
+## 📄 许可证
 
-## Roadmap
+本项目采用 [MIT License](LICENSE) 开源。
 
-顶部 tab 目前有 `Chat` / `Cowork` / `Code`，已完成的是 `Chat`。如果这个项目反响不错，接下来会按顺序攻破 `Cowork`（多人协同编辑 / 项目协作模式），然后是 `Code`（IDE 化编程体验）。
+## 💬 联系我们
 
-## 贡献
+- 📧 邮箱：2574566046@qq.com
+- 🐛 问题反馈：[Issues](https://github.com/lorryjovens-hub/claude-code---electron--Desktop/issues)
+- 💡 功能建议：[Discussions](https://github.com/lorryjovens-hub/claude-code---electron--Desktop/discussions)
 
-欢迎提 Issue 和 PR。如果是大功能建议先开 Issue 讨论方向，避免白费力气。
+## ⭐ Star History
 
-## 许可
+如果这个项目对你有帮助，请给我们一个 ⭐ Star，这将是对我们最大的鼓励！
 
-仅允许非商业使用。详见 [LICENSE](LICENSE)。
+[![Star History Chart](https://api.star-history.com/svg?repos=lorryjovens-hub/claude-code---electron--Desktop&type=Date)](https://star-history.com/#lorryjovens-hub/claude-code---electron--Desktop&Date)
 
-## Star History
+---
 
-觉得有用的话请点个 Star，帮助更多人发现这个项目。
+<p align="center">
+  <strong>Made with ❤️ by lorry</strong>
+</p>

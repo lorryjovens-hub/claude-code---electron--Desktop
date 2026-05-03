@@ -1,6 +1,4 @@
 const API_BASE = 'http://127.0.0.1:30080/api';
-const GATEWAY_BASE = 'https://api-cn.jiazhuang.cloud';
-const CHENGDU_API = 'https://clawparrot.com/api';
 const isElectronApp = typeof window !== 'undefined' && !!(window as any).electronAPI?.isElectron;
 
 // 获取存储的 token
@@ -8,39 +6,13 @@ function getToken() {
   return localStorage.getItem('auth_token');
 }
 
-// Resolve effective user_mode for a given conversation. If the user has explicitly
-// opted to use a cross-mode model in this conversation (via the cross-mode warning
-// modal in MainContent), the per-conv override takes precedence over the global
-// user_mode. This is what makes "keep using clawparrot opus while in selfhosted
-// mode" work — only that one conv switches its endpoint, the rest stay in the
-// global mode.
-function getUserModeForConversation(conversationId?: string): string {
-  if (conversationId) {
-    try {
-      const raw = localStorage.getItem('cross_mode_overrides');
-      if (raw) {
-        const map = JSON.parse(raw);
-        if (map[conversationId]) return map[conversationId];
-      }
-    } catch {}
-  }
-  return localStorage.getItem('user_mode') || 'clawparrot';
+// Resolve effective user_mode for a given conversation.
+function getUserModeForConversation(_conversationId?: string): string {
+  return 'selfhosted';
 }
 
-// Resolve env_token / env_base_url to send to bridge. clawparrot mode must ignore
-// CUSTOM_API_KEY/CUSTOM_BASE_URL — those exist only because an old version of the
-// app let clawparrot users paste their own relay API key; the UI was removed but
-// the localStorage values stick around, and if we fall back to them the user
-// silently keeps hitting their old personal relay instead of the clawparrot
-// gateway. selfhosted mode still prefers CUSTOM_* since self-deploy users legitimately
-// need to bring their own key.
-function resolveEnvCreds(mode: string): { env_token?: string; env_base_url?: string } {
-  if (mode === 'clawparrot') {
-    return {
-      env_token: localStorage.getItem('ANTHROPIC_API_KEY') || undefined,
-      env_base_url: localStorage.getItem('ANTHROPIC_BASE_URL') || undefined,
-    };
-  }
+// Resolve env_token / env_base_url to send to bridge.
+function resolveEnvCreds(_mode: string): { env_token?: string; env_base_url?: string } {
   return {
     env_token: localStorage.getItem('CUSTOM_API_KEY') || localStorage.getItem('ANTHROPIC_API_KEY') || undefined,
     env_base_url: localStorage.getItem('CUSTOM_BASE_URL') || localStorage.getItem('ANTHROPIC_BASE_URL') || undefined,
@@ -106,58 +78,6 @@ export async function login(email: string, password: string) {
   return res.json();
 }
 
-// Gateway login for Electron app — authenticates via US gateway, returns API key for Claude Code SDK
-export async function gatewayLogin(email: string, password: string) {
-  const res = await fetch(`${GATEWAY_BASE}/gateway/auth/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password }),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || '登录失败');
-  }
-  const data = await res.json();
-  if (data.api_key) {
-    localStorage.setItem('ANTHROPIC_API_KEY', data.api_key);
-    localStorage.setItem('ANTHROPIC_BASE_URL', GATEWAY_BASE);
-    localStorage.setItem('gateway_user', JSON.stringify(data.user || {}));
-    localStorage.setItem('gateway_quota', JSON.stringify(data.quota || {}));
-    // Also store Chengdu JWT + user in standard keys so profile/usage APIs work
-    if (data.chengdu_token) {
-      localStorage.setItem('auth_token', data.chengdu_token);
-    }
-    if (data.user) {
-      localStorage.setItem('user', JSON.stringify(data.user));
-    }
-  }
-  return data;
-}
-
-// Check if user is logged in via gateway
-export function isGatewayLoggedIn(): boolean {
-  return !!(localStorage.getItem('ANTHROPIC_API_KEY') && localStorage.getItem('gateway_user'));
-}
-
-// Gateway logout
-export function gatewayLogout() {
-  localStorage.removeItem('ANTHROPIC_API_KEY');
-  localStorage.removeItem('ANTHROPIC_BASE_URL');
-  localStorage.removeItem('gateway_user');
-  localStorage.removeItem('gateway_quota');
-}
-
-// Get gateway usage status
-export async function getGatewayUsage() {
-  const key = localStorage.getItem('ANTHROPIC_API_KEY');
-  if (!key) return null;
-  const res = await fetch(`${GATEWAY_BASE}/gateway/usage`, {
-    headers: { 'x-api-key': key },
-  });
-  if (!res.ok) return null;
-  return res.json();
-}
-
 export async function forgotPassword(email: string) {
   const res = await request('/auth/forgot-password', {
     method: 'POST',
@@ -177,11 +97,8 @@ export async function resetPassword(email: string, code: string, password: strin
 export function logout() {
   localStorage.removeItem('auth_token');
   localStorage.removeItem('user');
-  // Also clear gateway credentials (Electron app)
   localStorage.removeItem('ANTHROPIC_API_KEY');
   localStorage.removeItem('ANTHROPIC_BASE_URL');
-  localStorage.removeItem('gateway_user');
-  localStorage.removeItem('gateway_quota');
   window.location.hash = '#/login'; window.location.reload();
 }
 
@@ -190,57 +107,12 @@ export function getUser() {
   return userStr ? JSON.parse(userStr) : null;
 }
 
-// Helper: call Chengdu backend with stored JWT
-async function chengduRequest(path: string, options?: RequestInit) {
-  const token = localStorage.getItem('auth_token');
-  const headers: Record<string, string> = {};
-  if (token) headers['Authorization'] = `Bearer ${token}`;
-  if (options?.method && options.method !== 'GET') headers['Content-Type'] = 'application/json';
-  const url = `${CHENGDU_API}${path}`;
-  console.log('[chengduRequest]', url);
-  const res = await fetch(url, { ...options, headers: { ...headers, ...(options?.headers as Record<string, string> || {}) } });
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    console.error('[chengduRequest] Failed:', res.status, text.slice(0, 200));
-    throw new Error(`Chengdu ${path} failed: ${res.status}`);
-  }
-  return res.json();
-}
-
 export async function getUserProfile() {
-  if (isElectronApp && localStorage.getItem('auth_token')) {
-    try {
-      const data = await chengduRequest('/user/profile');
-      // Update local cache
-      if (data.user || data) {
-        const user = data.user || data;
-        localStorage.setItem('user', JSON.stringify(user));
-      }
-      return data;
-    } catch (e) {
-      // Fallback to cached
-      const userStr = localStorage.getItem('user');
-      return { user: userStr ? JSON.parse(userStr) : {} };
-    }
-  }
   const userStr = localStorage.getItem('user');
   return { user: userStr ? JSON.parse(userStr) : {} };
 }
 
 export async function updateUserProfile(data: Record<string, any>) {
-  if (isElectronApp && localStorage.getItem('auth_token')) {
-    const token = localStorage.getItem('auth_token');
-    const res = await fetch(`${CHENGDU_API}/user/profile`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-      body: JSON.stringify(data),
-    });
-    const result = await res.json();
-    const userStr = localStorage.getItem('user');
-    const user = userStr ? JSON.parse(userStr) : {};
-    localStorage.setItem('user', JSON.stringify({ ...user, ...result }));
-    return result;
-  }
   const userStr = localStorage.getItem('user');
   const user = userStr ? JSON.parse(userStr) : {};
   const updated = { ...user, ...data };
@@ -249,41 +121,6 @@ export async function updateUserProfile(data: Record<string, any>) {
 }
 
 export async function getUserUsage() {
-  let usage: any = null;
-
-  // Get plan info from Chengdu backend (requires auth_token from session-based login)
-  if (isElectronApp && localStorage.getItem('auth_token')) {
-    try {
-      usage = await chengduRequest('/user/usage');
-    } catch (_) {}
-  }
-
-  // In Electron mode, overlay gateway usage (the real usage data) onto Chengdu's plan info
-  if (isElectronApp) {
-    try {
-      const gwUsage = await getGatewayUsage();
-      if (gwUsage) {
-        if (usage && usage.quota) {
-          // Both sources available: combine
-          if (usage.quota.window) {
-            usage.quota.window.used = (usage.quota.window.used || 0) + (gwUsage.window_used || 0);
-          }
-          if (usage.quota.week) {
-            usage.quota.week.used = (usage.quota.week.used || 0) + (gwUsage.week_used || 0);
-          }
-        } else if (!usage) {
-          // No Chengdu auth_token — use gateway usage as primary source.
-          // SG gateway's /gateway/usage calls Chengdu internal /user/:id/summary,
-          // so it has the real plan+quota data even without a session cookie.
-          usage = gwUsage;
-        }
-      }
-    } catch (_) {}
-  }
-
-  if (usage) return usage;
-
-  // selfhosted mode (no gateway, no Chengdu) — unlimited placeholder
   return {
     plan: { id: 999, name: 'Self-hosted', status: 'active', price: 0 },
     token_quota: 0,
@@ -307,9 +144,6 @@ export async function markAnnouncementRead(id: number) {
 }
 
 export async function getUserModels() {
-  if (isElectronApp && localStorage.getItem('auth_token')) {
-    try { return await chengduRequest('/user/models'); } catch (_) {}
-  }
   try {
     const res = await request('/user/models');
     return res.json();
@@ -351,23 +185,11 @@ export async function deleteAccount(password: string) {
 
 // 套餐与支付
 export async function getPlans() {
-  if (isElectronApp && localStorage.getItem('auth_token')) {
-    try { return await chengduRequest('/payment/plans'); } catch (_) {}
-  }
   const res = await request('/payment/plans');
   return res.json();
 }
 
 export async function createPaymentOrder(planId: number, paymentMethod: string) {
-  if (isElectronApp && localStorage.getItem('auth_token')) {
-    const token = localStorage.getItem('auth_token');
-    const res = await fetch(`${CHENGDU_API}/payment/create`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-      body: JSON.stringify({ plan_id: planId, payment_method: paymentMethod }),
-    });
-    return res.json();
-  }
   const res = await request('/payment/create', {
     method: 'POST',
     body: JSON.stringify({ plan_id: planId, payment_method: paymentMethod }),
@@ -376,24 +198,12 @@ export async function createPaymentOrder(planId: number, paymentMethod: string) 
 }
 
 export async function getPaymentStatus(orderId: string) {
-  if (isElectronApp && localStorage.getItem('auth_token')) {
-    try { return await chengduRequest(`/payment/status/${orderId}`); } catch (_) {}
-  }
   const res = await request(`/payment/status/${orderId}`);
   return res.json();
 }
 
 // 兑换码
 export async function redeemCode(code: string) {
-  if (isElectronApp && localStorage.getItem('auth_token')) {
-    const token = localStorage.getItem('auth_token');
-    const res = await fetch(`${CHENGDU_API}/redemption/redeem`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-      body: JSON.stringify({ code }),
-    });
-    return res.json();
-  }
   const res = await request('/redemption/redeem', {
     method: 'POST',
     body: JSON.stringify({ code }),

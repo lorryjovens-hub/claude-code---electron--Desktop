@@ -4,21 +4,12 @@ function isClaudeFamilyModel(modelId) {
 
 function resolveRequestedModelForMode({ modelId, userMode, hasProvider }) {
   const normalizedModelId = String(modelId || '').trim() || 'claude-sonnet-4-6';
-  const effectiveUserMode = userMode === 'selfhosted' ? 'selfhosted' : 'clawparrot';
 
-  if (effectiveUserMode === 'clawparrot' && !isClaudeFamilyModel(normalizedModelId)) {
-    return {
-      modelId: 'claude-sonnet-4-6',
-      fallbackApplied: true,
-      error: null,
-    };
-  }
-
-  if (effectiveUserMode === 'selfhosted' && !hasProvider && !isClaudeFamilyModel(normalizedModelId)) {
+  if (!hasProvider && !isClaudeFamilyModel(normalizedModelId)) {
     return {
       modelId: normalizedModelId,
       fallbackApplied: false,
-      error: `No enabled self-hosted provider found for model "${normalizedModelId}".`,
+      error: `No enabled provider found for model "${normalizedModelId}".`,
     };
   }
 

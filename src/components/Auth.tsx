@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
-import { login, register, sendCode, forgotPassword, resetPassword, gatewayLogin } from '../api';
+import { login, register, sendCode, forgotPassword, resetPassword } from '../api';
 
 type View = 'login' | 'register' | 'verify' | 'forgot' | 'reset';
 
@@ -38,28 +38,15 @@ const Auth = () => {
   const showStrength = (view === 'register' || view === 'reset') && password;
   const strength = showStrength ? getPasswordStrength(password) : null;
 
-  const isElectron = !!(window as any).electronAPI?.isElectron;
-
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(''); setLoading(true);
     try {
-      if (isElectron) {
-        // Electron app: login via US gateway, get API key for Claude Code SDK
-        const data = await gatewayLogin(email, password);
-        if (data.api_key) {
-          window.location.hash = '#/'; window.location.reload();
-        } else {
-          setError('登录成功但未获取到 API Key');
-        }
-      } else {
-        // Web: login via Chengdu backend
-        const data = await login(email, password);
-        if (data.token) {
-          localStorage.setItem('auth_token', data.token);
-          localStorage.setItem('user', JSON.stringify(data.user));
-          window.location.hash = '#/'; window.location.reload();
-        }
+      const data = await login(email, password);
+      if (data.token) {
+        localStorage.setItem('auth_token', data.token);
+        localStorage.setItem('user', JSON.stringify(data.user));
+        window.location.hash = '#/'; window.location.reload();
       }
     } catch (err: any) {
       setError(err.message || '登录失败');
@@ -178,28 +165,9 @@ const Auth = () => {
     </>
   );
 
-  const userMode = localStorage.getItem('user_mode');
-  const showClawparrotHint = isElectron && userMode === 'clawparrot';
-
-  const handleSkipLogin = () => {
-    // 切换到自部署模式, 不走 clawparrot 网关. 用户之后可以在 Settings → Models 里配置自己的 provider.
-    localStorage.setItem('user_mode', 'selfhosted');
-    localStorage.removeItem('ANTHROPIC_API_KEY');
-    localStorage.removeItem('ANTHROPIC_BASE_URL');
-    localStorage.removeItem('gateway_user');
-    localStorage.removeItem('auth_token');
-    window.location.hash = '#/';
-    window.location.reload();
-  };
-
-  const openClawparrot = () => {
-    try { (window as any).electronAPI?.openExternal?.('https://clawparrot.com'); } catch {}
-  };
-
   return (
     <div className="min-h-screen flex items-center justify-center bg-[#F8F8F6] font-sans relative">
-      {/* Back button — lets users leave the login page without logging in.
-          Uses navigate(-1) if there's history, otherwise navigates to / */}
+      {/* Back button */}
       <button
         onClick={() => {
           if (window.history.length > 1) navigate(-1);
@@ -210,29 +178,11 @@ const Auth = () => {
         <ArrowLeft size={16} />
         返回
       </button>
-      {showClawparrotHint && (
-        <button
-          onClick={handleSkipLogin}
-          className="absolute top-14 right-6 px-3 py-1.5 text-sm text-[#747474] hover:text-[#222] hover:bg-black/5 rounded-md transition-colors"
-        >
-          跳过登录
-        </button>
-      )}
       <div className="w-full max-w-md p-8 bg-white rounded-2xl shadow-sm border border-[#E5E5E5]">
         <div className="text-center mb-8">
           <h1 className="text-3xl font-serif-claude text-[#222] mb-2">Claude</h1>
           <p className="text-[#747474]">欢迎回来</p>
         </div>
-
-        {showClawparrotHint && view === 'login' && (
-          <div className="mb-4 p-3 bg-[#F5F0E9] border border-[#E5D9C8] text-[#6B4E3D] text-[13px] rounded-lg leading-relaxed">
-            首次使用请先在{' '}
-            <button onClick={openClawparrot} className="text-[#CC7C5E] underline hover:text-[#B96B4E] font-medium">
-              clawparrot.com
-            </button>
-            {' '}用邮箱注册账号，然后回到这里登录。右上角可跳过登录、改用自部署模式。
-          </div>
-        )}
 
         {error && <div className="mb-4 p-3 bg-red-50 text-red-600 text-sm rounded-lg">{error}</div>}
         {message && <div className="mb-4 p-3 bg-green-50 text-green-600 text-sm rounded-lg">{message}</div>}

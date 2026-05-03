@@ -16,8 +16,8 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
     return (localStorage.getItem('theme') as any) || 'system';
   });
 
-  // Step 1: Identity
-  const [mode, setMode] = useState<'selfhosted' | 'clawparrot' | null>(null);
+  // Step 1: Identity (self-hosted only)
+  const [mode] = useState<'selfhosted'>('selfhosted');
 
   // Step 2: Workspace
   const [workspace, setWorkspace] = useState('');
@@ -68,18 +68,13 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
     if (api?.resizeWindow) api.resizeWindow(1300, 780);
 
     localStorage.setItem('theme', theme);
-    localStorage.setItem('user_mode', mode || 'selfhosted');
+    localStorage.setItem('user_mode', 'selfhosted');
     localStorage.setItem('onboarding_done', 'true');
-    if (mode === 'selfhosted') {
-      // Self-hosted: clear any gateway keys, user will configure in settings
-      localStorage.removeItem('ANTHROPIC_API_KEY');
-      localStorage.removeItem('ANTHROPIC_BASE_URL');
-      localStorage.removeItem('gateway_user');
-      localStorage.removeItem('auth_token');
-    } else if (mode === 'clawparrot') {
-      // Open clawparrot.com so the user can register before logging in from the app.
-      try { api?.openExternal?.('https://clawparrot.com'); } catch {}
-    }
+    // Self-hosted: clear any gateway keys, user will configure in settings
+    localStorage.removeItem('ANTHROPIC_API_KEY');
+    localStorage.removeItem('ANTHROPIC_BASE_URL');
+    localStorage.removeItem('gateway_user');
+    localStorage.removeItem('auth_token');
     if (workspace) {
       localStorage.setItem('workspace_path', workspace);
       // Save to bridge-server config (takes effect on next launch)
@@ -226,30 +221,20 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
               </div>
             )}
 
-            {/* ───── Step 1: Identity ───── */}
+            {/* ───── Step 1: Identity (Self-hosted only) ───── */}
             {step === 1 && (
               <div className="flex flex-col items-center">
                 <h2 className="text-[24px] font-semibold text-claude-text tracking-[-0.02em] mb-1.5">
                   选择模式
                 </h2>
                 <p className="text-[14px] text-claude-textSecondary mb-7">
-                  选择 API 来源，之后可以在设置中随时切换。
+                  使用自己的 API Key，可接入 Claude、GPT、GLM、Gemini 等任意兼容模型。
                 </p>
 
-                <div className="flex gap-3 w-full">
-                  {/* Self-hosted */}
-                  <button
-                    onClick={() => setMode('selfhosted')}
-                    className={`onboarding-card flex-1 flex flex-col p-5 rounded-xl border text-left transition-all ${
-                      mode === 'selfhosted'
-                        ? 'border-blue-500/60 onboarding-card-selected bg-claude-bg'
-                        : 'border-claude-border/60 hover:border-claude-textSecondary/20 bg-claude-bg'
-                    }`}
-                  >
-                    <div className={`w-9 h-9 rounded-lg flex items-center justify-center mb-3 transition-colors ${
-                      mode === 'selfhosted' ? 'bg-blue-500/10' : 'bg-claude-hover'
-                    }`}>
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={mode === 'selfhosted' ? '#3b82f6' : 'currentColor'} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="text-claude-textSecondary">
+                <div className="w-full max-w-[280px]">
+                  <div className="onboarding-card flex-1 flex flex-col p-5 rounded-xl border border-claude-border/60 bg-claude-bg text-left">
+                    <div className="w-9 h-9 rounded-lg flex items-center justify-center mb-3 bg-blue-500/10">
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                         <rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><circle cx="6" cy="6" r="1" fill="currentColor"/><circle cx="6" cy="18" r="1" fill="currentColor"/>
                       </svg>
                     </div>
@@ -257,42 +242,12 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
                     <span className="text-[12.5px] text-claude-textSecondary/70 leading-relaxed">
                       使用自己的 API Key，可接入 Claude、GPT、GLM、Gemini 等任意兼容模型。
                     </span>
-                  </button>
-
-                  {/* Clawparrot */}
-                  <button
-                    onClick={() => setMode('clawparrot')}
-                    className={`onboarding-card flex-1 flex flex-col p-5 rounded-xl border text-left transition-all ${
-                      mode === 'clawparrot'
-                        ? 'border-blue-500/60 onboarding-card-selected bg-claude-bg'
-                        : 'border-claude-border/60 hover:border-claude-textSecondary/20 bg-claude-bg'
-                    }`}
-                  >
-                    <div className={`w-9 h-9 rounded-lg flex items-center justify-center mb-3 transition-colors ${
-                      mode === 'clawparrot' ? 'bg-blue-500/10' : 'bg-claude-hover'
-                    }`}>
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={mode === 'clawparrot' ? '#3b82f6' : 'currentColor'} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="text-claude-textSecondary">
-                        <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
-                      </svg>
-                    </div>
-                    <span className="text-[15px] font-semibold text-claude-text mb-1">Clawparrot 托管</span>
-                    <span className="text-[12.5px] text-claude-textSecondary/70 leading-relaxed">
-                      由作者提供的 Claude API 服务 — 价格实惠，即开即用，无需配置。
-                    </span>
-                  </button>
+                  </div>
                 </div>
 
-                {/* Mode hints */}
-                {mode === 'selfhosted' && (
-                  <p className="mt-5 text-[12.5px] text-claude-textSecondary/60 text-center" style={{ animation: 'onboarding-fade-in 0.3s ease' }}>
-                    进入应用后，可在设置中添加多个模型渠道和 API Key。
-                  </p>
-                )}
-                {mode === 'clawparrot' && (
-                  <p className="mt-5 text-[12.5px] text-claude-textSecondary/60 text-center" style={{ animation: 'onboarding-fade-in 0.3s ease' }}>
-                    支持 Opus 4.6、Sonnet 4.6、Haiku 4.5 等模型，继续后将跳转到 Clawparrot 网站登录并选购套餐。
-                  </p>
-                )}
+                <p className="mt-5 text-[12.5px] text-claude-textSecondary/60 text-center">
+                  进入应用后，可在设置中添加多个模型渠道和 API Key。
+                </p>
               </div>
             )}
 

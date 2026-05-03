@@ -96,8 +96,7 @@ export default function AdminRedemption() {
   };
 
   const buildRedeemMessage = (code: string) => (
-    `您的兑换码：${code}\n` +
-    '请到https://clawparrot.com，用您的邮箱注册一个账号，注册完成后点击界面左下角用户区域，然后点击payment，在那里进行套餐的兑换哦~或者直接点击聊天输入栏的“购买套餐”也可跳转至套餐兑换界面！感谢您的支持~使用时遇到什么bug或者体验不好的地方请联系我，我一定会重视各位老板们的意见的！'
+    `您的兑换码：${code}`
   );
 
   const handleQuickGenerateAndCopy = async (plan: any) => {

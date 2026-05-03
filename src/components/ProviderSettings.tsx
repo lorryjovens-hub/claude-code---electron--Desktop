@@ -45,11 +45,6 @@ const KNOWN_PROVIDERS: Array<{
       match: u => /dashscope\.aliyuncs/i.test(u), name: 'Qwen (Aliyun)', format: 'openai', color: '#FF6A00', letter: 'Q',
       webSearch: 'native',
     },
-    {
-      match: u => /api-cn\.jiazhuang/i.test(u), name: 'Clawparrot', format: 'anthropic', color: '#C6613F', letter: 'C',
-      webSearch: 'native',
-      defaultModels: [{ id: 'claude-opus-4-6', name: 'Claude Opus 4.6' }, { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6' }, { id: 'claude-haiku-4-5-20251001', name: 'Claude Haiku 4.5' }]
-    },
   ];
 
 
@@ -70,7 +65,6 @@ const PROVIDER_LOGOS: Record<string, (size: number) => React.ReactNode> = {
   'MiniMax': (s) => <svg width={s} height={s} viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#FF6B35" /><text x="12" y="16.5" textAnchor="middle" fill="white" fontSize="10" fontWeight="700" fontFamily="sans-serif">MM</text></svg>,
   'Google Gemini': (s) => <svg width={s} height={s} viewBox="0 0 24 24"><path d="M12 24C12 24 24 17.5 24 12S12 0 12 0 0 6.5 0 12s12 12 12 12z" fill="url(#gem)" /><defs><linearGradient id="gem" x1="0" y1="0" x2="24" y2="24"><stop offset="0%" stopColor="#4285F4" /><stop offset="50%" stopColor="#9B72CB" /><stop offset="100%" stopColor="#D96570" /></linearGradient></defs></svg>,
   'Qwen (Aliyun)': (s) => <svg width={s} height={s} viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#FF6A00" /><text x="12" y="16.5" textAnchor="middle" fill="white" fontSize="10" fontWeight="700" fontFamily="sans-serif">Qw</text></svg>,
-  'Clawparrot': (s) => <svg width={s} height={s} viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#C6613F" /><text x="12" y="16" textAnchor="middle" fill="white" fontSize="12" fontWeight="700" fontFamily="sans-serif">C</text></svg>,
 };
 
 const ProviderIcon: React.FC<{ name: string; color: string; letter: string; size?: number }> = ({ name, color, letter, size = 32 }) => {

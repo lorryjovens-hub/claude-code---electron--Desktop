@@ -178,7 +178,7 @@ app.whenReady().then(() => {
     if (!isDev) {
         autoUpdater.setFeedURL({
             provider: 'generic',
-            url: 'https://clawparrot.com/updates',
+            url: 'https://github.com/lorryjovens-hub/Claude-GUI--Electron/releases/latest/download',
         });
         autoUpdater.autoDownload = true;
         autoUpdater.autoInstallOnAppQuit = true;

@@ -1,4 +1,4 @@
-﻿const express = require('express');
+const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
 const path = require('path');
@@ -61,7 +61,7 @@ function enableNodeModeForChildProcesses() {
 
 // Load custom system prompt (only affects this Electron app, not external CLI usage)
 const CUSTOM_SYSTEM_PROMPT_PATH = path.join(__dirname, 'system-prompt.txt');
-let customSystemPromptFull = '';  // Full prompt including anti-Kiro sections (for Clawparrot)
+let customSystemPromptFull = '';  // Full prompt including anti-Kiro sections
 let customSystemPromptClean = ''; // Without anti-Kiro sections (for self-hosted)
 try {
     if (fs.existsSync(CUSTOM_SYSTEM_PROMPT_PATH)) {
@@ -2408,8 +2408,7 @@ function initServer(mainWindow) {
             : [(p.models || [])[0]?.id].filter(Boolean);
         if (modelIds.length === 0) return { ok: false, strategy: null, reason: '无可用模型' };
 
-        // Try Bearer auth first (used by most aggregators like aiapikey.net, clawparrot, etc.),
-        // then fall back to x-api-key (canonical Anthropic API).
+        // Try Bearer auth first, then fall back to x-api-key (canonical Anthropic API).
         const styles = ['bearer', 'x-api-key'];
         const attempts = [];
         for (const modelId of modelIds) {
@@ -3782,16 +3781,15 @@ You have the following skills available. When a user's request matches a skill's
         const rawModel = conv.model || 'claude-sonnet-4-6';
         const thinkingEnabled = /-thinking$/.test(rawModel);
         const requestedModelId = rawModel.replace(/-thinking$/, '');
-        const effectiveUserMode = user_mode === 'selfhosted' ? 'selfhosted' : 'clawparrot';
-        const initialProvider = effectiveUserMode === 'selfhosted' ? resolveProvider(requestedModelId) : null;
+        const initialProvider = resolveProvider(requestedModelId);
         const routed = resolveRequestedModelForMode({
             modelId: requestedModelId,
-            userMode: effectiveUserMode,
+            userMode: 'selfhosted',
             hasProvider: !!initialProvider,
         });
         let modelId = routed.modelId;
         if (routed.fallbackApplied) {
-            console.warn('[Chat] Non-Claude model', requestedModelId, 'detected under clawparrot mode — falling back to', modelId);
+            console.warn('[Chat] Non-Claude model', requestedModelId, 'detected — falling back to', modelId);
         }
         if (routed.error) {
             throw new Error(routed.error);
@@ -4365,9 +4363,8 @@ You have the following skills available. When a user's request matches a skill's
             // Engine reuse: must match on every dimension that's baked into the spawn
             // env at startup. modelId / apiKey / baseUrl / apiFormat are all hardcoded
             // into the child process's environment vars and CANNOT be changed without
-            // a respawn. If the user switches user_mode (clawparrot ↔ selfhosted) or
-            // changes provider config, the resolved config differs from the running
-            // engine — kill it so the next spawn uses the new endpoint/credentials.
+            // a respawn. If the user changes provider config, the resolved config differs
+            // from the running engine — kill it so the next spawn uses the new endpoint/credentials.
             const apiKeyChanged = !!engine && engine.apiKey !== config.apiKey;
             const baseUrlChanged = !!engine && engine.baseUrl !== config.baseUrl;
             const apiFormatChanged = !!engine && engine.apiFormat !== config.apiFormat;

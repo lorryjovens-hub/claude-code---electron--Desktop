@@ -83,11 +83,19 @@
         "to": "engine/.env"
       }
     ],
-    "publish": {
-      "provider": "github",
-      "owner": "lorryjovens-hub",
-      "repo": "Claude-GUI--Electron"
-    },
+    "repository": {
+    "type": "git",
+    "url": "https://github.com/lorryjovens-hub/claude-code---electron--Desktop.git"
+  },
+  "bugs": {
+    "url": "https://github.com/lorryjovens-hub/claude-code---electron--Desktop/issues"
+  },
+  "homepage": "https://github.com/lorryjovens-hub/claude-code---electron--Desktop#readme",
+  "publish": {
+    "provider": "github",
+    "owner": "lorryjovens-hub",
+    "repo": "claude-code---electron--Desktop"
+  },
     "win": {
       "target": [
         "nsis"

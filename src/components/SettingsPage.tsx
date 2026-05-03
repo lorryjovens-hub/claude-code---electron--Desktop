@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ChevronRight, Smartphone, MonitorIcon, LogOut, MoreHorizontal, Check, X } from 'lucide-react';
-import { getUserProfile, updateUserProfile, getUserUsage, getGatewayUsage, getSessions, deleteSession, logoutOtherSessions, changePassword, deleteAccount, logout, getProviderModels } from '../api';
+import { getProviderModels } from '../api';
 import ProviderSettings from './ProviderSettings';
 
 interface SettingsPageProps {
@@ -30,56 +30,25 @@ const SettingsPage = ({ onClose }: SettingsPageProps) => {
   const [theme, setTheme] = useState('light');
   const [chatFont, setChatFont] = useState('default');
   const [defaultModel, setDefaultModel] = useState('claude-opus-4-6-thinking');
-  const [sessions, setSessions] = useState<any[]>([]);
-  const [currentSessionId, setCurrentSessionId] = useState('');
-  const [pwdCurrent, setPwdCurrent] = useState('');
-  const [pwdNew, setPwdNew] = useState('');
-  const [pwdConfirm, setPwdConfirm] = useState('');
-  const [pwdMsg, setPwdMsg] = useState('');
-  const [pwdError, setPwdError] = useState('');
-  const [pwdSaving, setPwdSaving] = useState(false);
-  const [showPwdForm, setShowPwdForm] = useState(false);
-  const [showDeleteAccount, setShowDeleteAccount] = useState(false);
-  const [deletePassword, setDeletePassword] = useState('');
-  const [deleteError, setDeleteError] = useState('');
-  const [deleting, setDeleting] = useState(false);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; sessionId: string } | null>(null);
-  const [sendKey, setSendKey] = useState(localStorage.getItem('sendKey') || 'enter'); // enter or ctrl+enter
+  const [sendKey, setSendKey] = useState(localStorage.getItem('sendKey') || 'enter');
   const [newlineKey, setNewlineKey] = useState(localStorage.getItem('newlineKey') || (localStorage.getItem('sendKey') === 'enter' ? 'shift_enter' : 'enter'));
 
   const isSelfHosted = localStorage.getItem('user_mode') === 'selfhosted';
 
   useEffect(() => {
-    // Load profile: self-hosted uses localStorage, Clawparrot uses backend
-    if (isSelfHosted) {
-      try {
-        const saved = JSON.parse(localStorage.getItem('user_profile') || '{}');
-        const user = JSON.parse(localStorage.getItem('user') || '{}');
-        const p = { ...user, ...saved }; // saved overrides user defaults
-        setProfile(p);
-        setFullName(p.full_name || p.nickname || '');
-        setDisplayName(p.display_name || p.nickname || '');
-        setWorkFunction(p.work_function || '');
-        setPersonalPreferences(p.personal_preferences || '');
-      } catch { }
-    } else {
-      getUserProfile().then((data: any) => {
-        const p = data?.user || data;
-        setProfile(p);
-        setFullName(p?.full_name || p?.nickname || '');
-        setDisplayName(p?.display_name || p?.nickname || '');
-        setWorkFunction(p?.work_function || '');
-        setPersonalPreferences(p?.personal_preferences || '');
-        setTheme(p?.theme || 'light');
-        setChatFont(p?.chat_font || 'default');
-        setDefaultModel(p?.default_model || 'claude-opus-4-6-thinking');
-      }).catch(() => { });
-    }
+    // Load profile from localStorage
+    try {
+      const saved = JSON.parse(localStorage.getItem('user_profile') || '{}');
+      const user = JSON.parse(localStorage.getItem('user') || '{}');
+      const p = { ...user, ...saved };
+      setProfile(p);
+      setFullName(p.full_name || p.nickname || '');
+      setDisplayName(p.display_name || p.nickname || '');
+      setWorkFunction(p.work_function || '');
+      setPersonalPreferences(p.personal_preferences || '');
+    } catch { }
     getUserUsage().then(setUsage).catch(() => { });
-    getSessions().then(data => {
-      setSessions(data.sessions || []);
-      setCurrentSessionId(data.currentSessionId || '');
-    }).catch(() => { });
   }, []);
 
   const handleSave = async (silent = false) => {
@@ -97,17 +66,8 @@ const SettingsPage = ({ onClose }: SettingsPageProps) => {
         chat_font: chatFont,
       };
       if (isSelfHosted) {
-        // Self-hosted: persist to localStorage
         localStorage.setItem('user_profile', JSON.stringify(profileData));
         setProfile(profileData);
-      } else {
-        const data = await updateUserProfile(profileData);
-        setProfile(data);
-        const userStr = localStorage.getItem('user');
-        if (userStr) {
-          const user = JSON.parse(userStr);
-          localStorage.setItem('user', JSON.stringify({ ...user, ...data }));
-        }
       }
       window.dispatchEvent(new Event('userProfileUpdated'));
       if (!silent) {
@@ -218,33 +178,13 @@ const SettingsPage = ({ onClose }: SettingsPageProps) => {
         >
           General
         </button>
-        {localStorage.getItem('user_mode') === 'selfhosted' && (
-          <button
-            onClick={() => setTab('models')}
-            className={`text-left px-3 py-2 rounded-lg text-[15px] font-medium transition-colors ${tab === 'models' ? 'bg-claude-btn-hover text-claude-text' : 'text-claude-textSecondary hover:bg-claude-hover'
-              }`}
-          >
-            Models
-          </button>
-        )}
-        {localStorage.getItem('user_mode') !== 'selfhosted' && (
-          <button
-            onClick={() => setTab('account')}
-            className={`text-left px-3 py-2 rounded-lg text-[15px] font-medium transition-colors ${tab === 'account' ? 'bg-claude-btn-hover text-claude-text' : 'text-claude-textSecondary hover:bg-claude-hover'
-              }`}
-          >
-            Account
-          </button>
-        )}
-        {localStorage.getItem('user_mode') !== 'selfhosted' && (
-          <button
-            onClick={() => setTab('usage')}
-            className={`text-left px-3 py-2 rounded-lg text-[15px] font-medium transition-colors ${tab === 'usage' ? 'bg-claude-btn-hover text-claude-text' : 'text-claude-textSecondary hover:bg-claude-hover'
-              }`}
-          >
-            Usage
-          </button>
-        )}
+        <button
+          onClick={() => setTab('models')}
+          className={`text-left px-3 py-2 rounded-lg text-[15px] font-medium transition-colors ${tab === 'models' ? 'bg-claude-btn-hover text-claude-text' : 'text-claude-textSecondary hover:bg-claude-hover'
+            }`}
+        >
+          Models
+        </button>
       </div>
 
       {/* Right Content Area */}
@@ -252,257 +192,10 @@ const SettingsPage = ({ onClose }: SettingsPageProps) => {
         <div className="max-w-6xl pt-16 pl-12 pb-32 pr-12">
           {tab === 'general' && renderGeneral()}
           {tab === 'models' && <ProviderSettings />}
-          {tab === 'account' && renderAccount()}
-          {tab === 'usage' && renderUsage()}
         </div>
       </div>
     </div>
   );
-
-  function renderAccount() {
-    const handleChangePassword = async () => {
-      setPwdError(''); setPwdMsg('');
-      if (!pwdCurrent || !pwdNew || !pwdConfirm) { setPwdError('请填写所有字段'); return; }
-      if (pwdNew.length < 6) { setPwdError('新密码至少 6 位'); return; }
-      if (pwdNew !== pwdConfirm) { setPwdError('两次输入的新密码不一致'); return; }
-      setPwdSaving(true);
-      try {
-        await changePassword(pwdCurrent, pwdNew);
-        setPwdMsg('密码修改成功，其他设备已自动登出');
-        setPwdCurrent(''); setPwdNew(''); setPwdConfirm('');
-        setShowPwdForm(false);
-        getSessions().then(data => { setSessions(data.sessions || []); setCurrentSessionId(data.currentSessionId || ''); }).catch(() => { });
-      } catch (e: any) { setPwdError(e.message || '修改失败'); }
-      finally { setPwdSaving(false); }
-    };
-
-    const handleDeleteSession = async (id: string) => {
-      try {
-        await deleteSession(id);
-        setSessions(prev => prev.filter(s => s.id !== id));
-      } catch (e: any) { alert(e.message || '操作失败'); }
-    };
-
-    const handleLogoutOthers = async () => {
-      if (!confirm('确定登出所有其他设备？')) return;
-      try {
-        await logoutOtherSessions();
-        setSessions(prev => prev.filter(s => s.id === currentSessionId));
-      } catch (e: any) { alert(e.message || '操作失败'); }
-    };
-
-    const formatTime = (t: string) => {
-      if (!t) return '';
-      let timeStr = t;
-      // Handle SQLite format (space instead of T)
-      if (timeStr.includes(' ') && !timeStr.includes('T')) {
-        timeStr = timeStr.replace(' ', 'T');
-      }
-      // Handle missing timezone (assume UTC if no Z or offset at end)
-      // Regex checks for Z or +HH:MM or -HH:MM or +HHMM or -HHMM at the end
-      if (!/Z$|[+-]\d{2}:?\d{2}$/.test(timeStr)) {
-        timeStr += 'Z';
-      }
-
-      const d = new Date(timeStr);
-      if (isNaN(d.getTime())) return 'Invalid Date';
-
-      return d.toLocaleString('en-US', {
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric',
-        hour: 'numeric',
-        minute: '2-digit',
-        hour12: true
-      });
-    };
-
-    return (
-      <div className="space-y-10 animate-fade-in">
-        {/* 邮箱 */}
-        <section>
-          <h3 className="text-[16px] font-semibold text-claude-text mb-5">账号</h3>
-          <div className="space-y-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <label className="block text-[13px] font-medium text-claude-textSecondary mb-1.5">邮箱地址</label>
-                <div className="text-[14px] text-claude-text">{profile?.email || '-'}</div>
-              </div>
-              <div className="flex items-center gap-4 mt-4">
-                <button
-                  type="button"
-                  onClick={(e) => { e.preventDefault(); setShowPwdForm(true); setPwdError(''); setPwdMsg(''); }}
-                  className="text-[13px] text-claude-textSecondary hover:text-claude-text hover:underline transition-colors"
-                >
-                  修改密码
-                </button>
-                <div className="w-[1px] h-3 bg-claude-border"></div>
-                <button
-                  type="button"
-                  onClick={(e) => { e.preventDefault(); setShowDeleteAccount(true); setDeleteError(''); setDeletePassword(''); }}
-                  className="text-[13px] text-[#B9382C] hover:text-[#a02e23] hover:underline transition-colors"
-                >
-                  注销账号
-                </button>
-              </div>
-            </div>
-          </div>
-          {/* Change Password Modal */}
-          {showPwdForm && (
-            <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in"
-              onClick={() => { setShowPwdForm(false); setPwdError(''); setPwdCurrent(''); setPwdNew(''); setPwdConfirm(''); }}>
-              <div className="bg-white dark:bg-[#2B2A29] p-6 rounded-2xl w-full max-w-sm shadow-xl border border-claude-border animate-in zoom-in-95 duration-200"
-                onClick={e => e.stopPropagation()}>
-                <h4 className="text-[18px] font-semibold text-claude-text mb-4">修改密码</h4>
-                {pwdMsg && <div className="p-2 mb-3 bg-green-50 text-green-700 text-[13px] rounded-lg">{pwdMsg}</div>}
-                {pwdError && <div className="p-2 mb-3 bg-red-50 text-red-600 text-[13px] rounded-lg">{pwdError}</div>}
-                <div className="space-y-3">
-                  <input type="password" value={pwdCurrent} onChange={e => setPwdCurrent(e.target.value)}
-                    placeholder="当前密码" className="w-full px-3 py-2 bg-claude-input border border-claude-border rounded-lg text-[14px] text-claude-text focus:outline-none focus:border-[#387ee0] focus:ring-0" />
-                  <input type="password" value={pwdNew} onChange={e => setPwdNew(e.target.value)}
-                    placeholder="新密码（至少 6 位）" className="w-full px-3 py-2 bg-claude-input border border-claude-border rounded-lg text-[14px] text-claude-text focus:outline-none focus:border-[#387ee0] focus:ring-0" />
-                  <input type="password" value={pwdConfirm} onChange={e => setPwdConfirm(e.target.value)}
-                    placeholder="确认新密码" className="w-full px-3 py-2 bg-claude-input border border-claude-border rounded-lg text-[14px] text-claude-text focus:outline-none focus:border-[#387ee0] focus:ring-0" />
-                </div>
-                <div className="flex gap-3 pt-5 justify-end">
-                  <button onClick={(e) => { e.preventDefault(); setShowPwdForm(false); setPwdError(''); setPwdCurrent(''); setPwdNew(''); setPwdConfirm(''); }}
-                    className="px-4 py-2 text-claude-textSecondary hover:bg-claude-hover rounded-lg text-[14px] font-medium transition-colors">
-                    取消
-                  </button>
-                  <button onClick={(e) => { e.preventDefault(); handleChangePassword(); }} disabled={pwdSaving}
-                    className="px-4 py-2 bg-claude-btn-hover text-white text-[14px] font-medium rounded-lg transition-colors disabled:opacity-60">
-                    {pwdSaving ? '保存中...' : '更新密码'}
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Delete Account Modal */}
-          {showDeleteAccount && (
-            <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in"
-              onClick={() => { setShowDeleteAccount(false); setDeleteError(''); setDeletePassword(''); }}>
-              <div className="bg-white dark:bg-[#2B2A29] p-6 rounded-2xl w-full max-w-sm shadow-xl border border-red-200 dark:border-red-900/30 animate-in zoom-in-95 duration-200"
-                onClick={e => e.stopPropagation()}>
-                <h4 className="text-[18px] font-semibold text-[#B9382C] mb-2">注销账号</h4>
-                <p className="text-[14px] text-claude-textSecondary mb-4">
-                  此操作不可撤销。您的所有数据将被永久删除。
-                </p>
-                {deleteError && <div className="p-2 mb-3 bg-red-50 text-red-600 text-[13px] rounded-lg">{deleteError}</div>}
-                <input type="password" value={deletePassword} onChange={e => setDeletePassword(e.target.value)}
-                  placeholder="输入密码以确认"
-                  className="w-full px-3 py-2 bg-claude-input border border-claude-border rounded-lg text-[14px] text-claude-text focus:outline-none focus:border-[#B9382C] focus:ring-1 focus:ring-[#B9382C]" />
-                <div className="flex gap-3 pt-5 justify-end">
-                  <button onClick={(e) => { e.preventDefault(); setShowDeleteAccount(false); setDeleteError(''); setDeletePassword(''); }}
-                    className="px-4 py-2 text-claude-textSecondary hover:bg-claude-hover rounded-lg text-[14px] font-medium transition-colors">
-                    取消
-                  </button>
-                  <button onClick={async (e) => {
-                    e.preventDefault();
-                    if (!deletePassword) { setDeleteError('请输入密码'); return; }
-                    setDeleting(true); setDeleteError('');
-                    try {
-                      await deleteAccount(deletePassword);
-                      logout();
-                    } catch (e: any) { setDeleteError(e.message || '注销失败'); }
-                    finally { setDeleting(false); }
-                  }} disabled={deleting}
-                    className="px-4 py-2 bg-[#B9382C] hover:bg-[#a02e23] text-white text-[14px] font-medium rounded-lg transition-colors disabled:opacity-60">
-                    {deleting ? '注销中...' : '确认注销'}
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-        </section>
-
-        <hr className="border-claude-border" />
-
-        {/* 活跃会话 */}
-        <section>
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-[16px] font-semibold text-claude-text">活跃会话</h3>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-claude-border text-[13px] font-medium text-claude-textSecondary">
-                  <th className="py-2 pb-3 font-medium">设备</th>
-                  <th className="py-2 pb-3 font-medium">地址</th>
-                  <th className="py-2 pb-3 font-medium">创建时间</th>
-                  <th className="py-2 pb-3 font-medium">最近活跃</th>
-                  <th className="py-2 pb-3 font-medium"></th>
-                </tr>
-              </thead>
-              <tbody className="text-[14px] text-claude-text">
-                {sessions.map(s => (
-                  <tr key={s.id} className="border-b border-claude-border last:border-0 group">
-                    <td className="py-3 pr-4 align-middle">
-                      <div className="flex items-center gap-2">
-                        <span className="text-claude-textSecondary flex-shrink-0">
-                          {s.device?.includes('Android') || s.device?.includes('iOS') ? <Smartphone size={16} /> : <MonitorIcon size={16} />}
-                        </span>
-                        <span className="font-medium">{s.device || 'Unknown Device'}</span>
-                        {s.id === currentSessionId && (
-                          <span className="ml-1 text-[11px] px-1.5 py-0.5 rounded-sm bg-neutral-200 dark:bg-neutral-700 text-claude-textSecondary">Current</span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="py-3 pr-4 align-middle text-claude-textSecondary">
-                      {s.location || 'Unknown Location'}
-                    </td>
-                    <td className="py-3 pr-4 align-middle text-claude-textSecondary whitespace-nowrap">
-                      {formatTime(s.created_at || '')}
-                    </td>
-                    <td className="py-3 pr-4 align-middle text-claude-textSecondary whitespace-nowrap">
-                      {formatTime(s.last_active || '')}
-                    </td>
-                    <td className="py-3 align-middle text-right">
-                      {s.id !== currentSessionId && (
-                        <div className="relative">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              const rect = e.currentTarget.getBoundingClientRect();
-                              setCtxMenu({ x: rect.right, y: rect.bottom, sessionId: s.id });
-                            }}
-                            className="p-1 rounded text-claude-textSecondary hover:text-claude-text hover:bg-claude-hover transition-colors"
-                          >
-                            <MoreHorizontal size={16} />
-                          </button>
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {sessions.length === 0 && (
-              <div className="text-[13px] text-claude-textSecondary py-4 text-center">No active sessions</div>
-            )}
-          </div>
-
-          {/* Right-click context menu */}
-          {ctxMenu && (
-            <>
-              <div className="fixed inset-0 z-50" onClick={() => setCtxMenu(null)} onContextMenu={e => { e.preventDefault(); setCtxMenu(null); }} />
-              <div
-                className="fixed z-50 bg-white dark:bg-[#2B2A29] border border-[#E0DFDC] dark:border-[#3C3C3C] rounded-lg shadow-lg py-1 min-w-[120px] animate-in fade-in zoom-in-95 duration-100"
-                style={{
-                  left: ctxMenu.x - 120, // Align right edge with button
-                  top: ctxMenu.y + 4     // Slightly below button
-                }}>
-                <button onClick={() => { handleDeleteSession(ctxMenu.sessionId); setCtxMenu(null); }}
-                  className="w-full text-left px-4 py-2 text-[13px] text-claude-text hover:bg-[#F5F4F1] dark:hover:bg-[#383838] transition-colors">
-                  Log out
-                </button>
-              </div>
-            </>
-          )}
-        </section>
-      </div>
-    );
-  }
 
   function renderGeneral() {
     return (
@@ -576,8 +269,9 @@ const SettingsPage = ({ onClose }: SettingsPageProps) => {
           </div>
         </section>
 
-        {/* Default Model Section — only for Clawparrot (self-hosted configures in Models tab) */}
-        {localStorage.getItem('user_mode') !== 'selfhosted' && <><hr className="border-claude-border" /><section>
+        {/* Default Model Section */}
+        <hr className="border-claude-border" />
+        <section>
           <h3 className="text-[16px] font-semibold text-claude-text mb-5">默认模型</h3>
           <div className="space-y-5">
             <div>
@@ -613,7 +307,7 @@ const SettingsPage = ({ onClose }: SettingsPageProps) => {
               </button>
             </div>
           </div>
-        </section></>}
+        </section>
 
         {/* Send Key Section */}
         <section>
@@ -796,43 +490,6 @@ const SettingsPage = ({ onClose }: SettingsPageProps) => {
 
         <hr className="border-claude-border" />
 
-        {/* User Mode Switch */}
-        <section>
-          <h3 className="text-[16px] font-semibold text-claude-text mb-5">用户模式</h3>
-          <div className="flex gap-3">
-            {([
-              { value: 'selfhosted', label: '自行部署', desc: '使用自己的 API Key' },
-              { value: 'clawparrot', label: 'Clawparrot', desc: '使用托管 API 服务' },
-            ] as const).map(opt => {
-              const current = localStorage.getItem('user_mode') || 'selfhosted';
-              const active = current === opt.value;
-              return (
-                <button
-                  key={opt.value}
-                  onClick={() => {
-                    localStorage.setItem('user_mode', opt.value);
-                    if (opt.value === 'clawparrot') {
-                      // Check if logged in, if not redirect
-                      const hasKey = localStorage.getItem('ANTHROPIC_API_KEY') && localStorage.getItem('gateway_user');
-                      if (!hasKey) {
-                        window.location.hash = '#/login';
-                      }
-                    }
-                    window.location.reload();
-                  }}
-                  className={`flex-1 px-4 py-3 rounded-xl border text-left transition-all ${active ? 'border-[#3b82f6]/80 bg-blue-500/5' : 'border-claude-border/60 hover:border-claude-textSecondary/20'
-                    }`}
-                >
-                  <div className={`text-[14px] font-medium ${active ? 'text-claude-text' : 'text-claude-textSecondary'}`}>{opt.label}</div>
-                  <div className="text-[12px] text-claude-textSecondary/60 mt-0.5">{opt.desc}</div>
-                </button>
-              );
-            })}
-          </div>
-        </section>
-
-        <hr className="border-claude-border" />
-
         {/* About Section */}
         <section>
           <h3 className="text-[16px] font-semibold text-claude-text mb-3">关于</h3>
@@ -844,207 +501,6 @@ const SettingsPage = ({ onClose }: SettingsPageProps) => {
       </div>
     );
   }
-
-  function renderUsage() {
-    if (!usage) {
-      return <div className="text-[14px] text-[#999] py-8">Loading usage data...</div>;
-    }
-
-    const tokenQuota = Number(usage.token_quota) || 0;
-    const tokenUsed = Number(usage.token_used) || 0;
-    const tokenRemaining = Number(usage.token_remaining) || 0;
-    const usagePercent = Number(usage.usage_percent) || 0;
-    const storageQuota = Number(usage.storage_quota) || 0;
-    const storageUsed = Number(usage.storage_used) || 0;
-    const storagePercent = Number(usage.storage_percent) || 0;
-    const plan = usage.plan;
-    const messages = usage.messages;
-    const quota = usage.quota;
-
-    const formatDollar = (n: number) => {
-      return `$${n.toFixed(2)}`;
-    };
-
-    const formatBytes = (n: number) => {
-      if (n >= 1073741824) return `${(n / 1073741824).toFixed(1)} GB`;
-      if (n >= 1048576) return `${(n / 1048576).toFixed(1)} MB`;
-      if (n >= 1024) return `${(n / 1024).toFixed(0)} KB`;
-      return `${n} B`;
-    };
-
-    const daysRemaining = plan?.expires_at
-      ? Math.max(0, Math.ceil((new Date(plan.expires_at).getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
-      : 0;
-
-    const formatTimeLeft = (isoStr: string | null) => {
-      if (!isoStr) return '';
-      const diff = new Date(isoStr).getTime() - Date.now();
-      if (diff <= 0) return '即将重置';
-      const hours = Math.floor(diff / 3600000);
-      const mins = Math.floor((diff % 3600000) / 60000);
-      if (hours > 0) return `${hours}小时${mins}分钟后重置`;
-      return `${mins}分钟后重置`;
-    };
-
-    const formatResetDate = (isoStr: string | null) => {
-      if (!isoStr) return '';
-      const d = new Date(isoStr);
-      const diff = d.getTime() - Date.now();
-      if (diff <= 0) return '即将重置';
-      return `${d.getMonth() + 1}月${d.getDate()}日 ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')} 重置`;
-    };
-
-    const renderLimitItem = (title: string, used: number, limit: number, subtitle: string) => {
-      const pct = limit > 0 ? Math.min((used / limit) * 100, 100) : 0;
-      const isLow = pct < 50;
-      const isMedium = pct >= 50 && pct < 80;
-      const isHigh = pct >= 80;
-
-      return (
-        <div className="py-4 border-b border-claude-border last:border-0">
-          <div className="flex items-start justify-between mb-2">
-            <div>
-              <div className="text-[14px] font-medium text-claude-text mb-1">{title}</div>
-              <div className="text-[13px] text-claude-textSecondary">{subtitle}</div>
-            </div>
-            <div className="text-[14px] text-claude-textSecondary font-medium">
-              {Math.round(pct)}% 已使用
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <div className="flex-1 h-2 bg-claude-border rounded-full overflow-hidden">
-              <div
-                className={`h-full rounded-full transition-all duration-500 ease-out ${isHigh ? 'bg-[#D93025]' : 'bg-[#3b82f6]'
-                  }`}
-                style={{ width: `${pct}%` }}
-              />
-            </div>
-          </div>
-        </div>
-      );
-    };
-
-    return (
-      <div className="space-y-8 animate-fade-in">
-        <section>
-          <h3 className="text-[16px] font-semibold text-claude-text mb-5">使用量</h3>
-
-          <div className="space-y-6">
-            {/* Plan info */}
-            <div className="p-4 bg-claude-bg border border-claude-border rounded-xl shadow-sm">
-              <div className="flex items-center gap-2 mb-1">
-                <span className="text-[15px] font-semibold text-claude-text">
-                  {plan ? plan.name : '免费套餐'}
-                </span>
-                <span className={`px-2 py-0.5 text-[11px] font-medium rounded-full ${plan ? 'bg-[#4B9C68]/10 text-[#4B9C68]' : 'bg-claude-hover text-claude-textSecondary'
-                  }`}>
-                  {plan ? '生效中' : '免费'}
-                </span>
-              </div>
-              {plan ? (
-                <p className="text-[13px] text-claude-textSecondary">到期时间：{plan.expires_at?.slice(0, 10)}（剩余 {daysRemaining} 天）</p>
-              ) : (
-                <p className="text-[13px] text-claude-textSecondary">您当前没有活跃套餐</p>
-              )}
-            </div>
-
-            {/* Quota Progress Bars */}
-            {quota && (
-              <div className="space-y-6">
-                <div>
-                  <h4 className="text-[16px] font-semibold text-claude-text mb-1">套餐用量限制</h4>
-
-                  {/* Window (5h) */}
-                  {quota.window.limit > 0 && renderLimitItem(
-                    '当前5h窗口',
-                    quota.window.used,
-                    quota.window.limit,
-                    formatTimeLeft(quota.window.resetAt)
-                  )}
-                </div>
-
-                <div>
-                  {/* Weekly */}
-                  {quota.week.limit > 0 && renderLimitItem(
-                    '每周限额',
-                    quota.week.used,
-                    quota.week.limit,
-                    formatResetDate(quota.week.resetAt)
-                  )}
-
-                  {renderLimitItem(
-                    '每月 / 总计',
-                    quota.total.used,
-                    quota.total.limit,
-                    '基于套餐额度'
-                  )}
-                </div>
-              </div>
-            )}
-            {/* Fallback & Other Stats */}
-            {!quota && (
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-[13px] font-medium text-claude-text">额度</span>
-                  <span className="text-[13px] text-claude-textSecondary">
-                    已使用 {usagePercent.toFixed(2)}%
-                  </span>
-                </div>
-                <div className="h-2 bg-claude-border rounded-full overflow-hidden">
-                  <div
-                    className="h-full rounded-full transition-all duration-500 ease-out"
-                    style={{
-                      width: `${Math.min(usagePercent, 100)}%`,
-                      backgroundColor: usagePercent > 90 ? '#D93025' : usagePercent > 70 ? '#F9AB00' : '#D97757',
-                    }}
-                  />
-                </div>
-              </div>
-            )}
-
-            {/* Storage Usage — only show on web, not in Electron (app files are local) */}
-            {!(window as any).electronAPI?.isElectron && (
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-[13px] font-medium text-claude-text">存储空间</span>
-                  <span className="text-[13px] text-claude-textSecondary">
-                    已使用 {formatBytes(storageUsed)} / {formatBytes(storageQuota)}
-                  </span>
-                </div>
-                <div className="h-2 bg-claude-border rounded-full overflow-hidden">
-                  <div
-                    className="h-full rounded-full transition-all duration-500 ease-out"
-                    style={{
-                      width: `${Math.min(storagePercent, 100)}%`,
-                      backgroundColor: storagePercent > 90 ? '#D93025' : storagePercent > 70 ? '#F9AB00' : '#1A73E8',
-                    }}
-                  />
-                </div>
-                <div className="flex justify-between mt-1.5">
-                  <span className="text-[12px] text-claude-textSecondary">已使用 {storagePercent}%</span>
-                  <span className="text-[12px] text-claude-textSecondary">剩余 {formatBytes(storageQuota - storageUsed)}</span>
-                </div>
-              </div>
-            )}
-
-            {/* Message Stats */}
-            {messages && (
-              <div className="flex gap-4">
-                <div className="flex-1 p-3 bg-claude-bg border border-claude-border rounded-xl text-center">
-                  <div className="text-[20px] font-semibold text-claude-text">{messages.today}</div>
-                  <div className="text-[12px] text-claude-textSecondary">今日消息</div>
-                </div>
-                <div className="flex-1 p-3 bg-claude-bg border border-claude-border rounded-xl text-center">
-                  <div className="text-[20px] font-semibold text-claude-text">{messages.month}</div>
-                  <div className="text-[12px] text-claude-textSecondary">本月消息</div>
-                </div>
-              </div>
-            )}
-          </div>
-        </section>
-      </div>
-    );
-  };
 }
 
 export default SettingsPage;
